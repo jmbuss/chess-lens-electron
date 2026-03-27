@@ -1,0 +1,9 @@
+{
+  "browser": {
+    "browserName": "electron",
+    "launchOptions": {
+      "executablePath": "/Users/jasonbuss/code/freelance/chess-lens/node_modules/.bin/electron",
+      "cwd": "/Users/jasonbuss/code/freelance/chess-lens"
+    }
+  }
+}

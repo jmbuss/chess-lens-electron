@@ -1,0 +1,400 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  width: 100vw;
+}
+
+body {
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--color-surface-base);
+  color: var(--color-ink-primary);
+
+  display: flex;
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  width: 100vw;
+}
+
+#app {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-grow: 1;
+  margin: 0;
+  padding: 0;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* =============================================================================
+   @theme — Static color scales & Tailwind token registration
+   ============================================================================= */
+@theme {
+
+  /* ── Olive (hue 120 · sage-green, brand primary) ─────────────────────────── */
+  --color-olive-50:  oklch(97.0% 0.020 120);
+  --color-olive-100: oklch(93.0% 0.044 120);
+  --color-olive-200: oklch(87.0% 0.076 120);
+  --color-olive-300: oklch(79.0% 0.100 120);
+  --color-olive-400: oklch(69.0% 0.115 120);
+  --color-olive-500: oklch(58.0% 0.120 120);
+  --color-olive-600: oklch(48.0% 0.102 120);
+  --color-olive-700: oklch(39.0% 0.080 120);
+  --color-olive-800: oklch(31.0% 0.060 120);
+  --color-olive-900: oklch(24.0% 0.042 120);
+  --color-olive-950: oklch(15.0% 0.026 120);
+
+  /* ── Slate (hue 210 · cool blue-gray, neutrals & surfaces) ──────────────── */
+  --color-slate-50:  oklch(97.0% 0.006 210);
+  --color-slate-100: oklch(93.0% 0.010 210);
+  --color-slate-200: oklch(87.0% 0.018 210);
+  --color-slate-300: oklch(75.0% 0.028 210);
+  --color-slate-400: oklch(63.0% 0.034 210);
+  --color-slate-500: oklch(52.0% 0.038 210);
+  --color-slate-600: oklch(43.0% 0.036 210);
+  --color-slate-700: oklch(35.0% 0.032 210);
+  --color-slate-800: oklch(27.0% 0.026 210);
+  --color-slate-900: oklch(21.0% 0.022 210);
+  --color-slate-950: oklch(15.0% 0.016 210);
+
+  /* ── Teal (hue 178 · blue-green, interactive accent) ─────────────────────── */
+  --color-teal-50:  oklch(97.5% 0.022 178);
+  --color-teal-100: oklch(93.0% 0.048 178);
+  --color-teal-200: oklch(86.0% 0.082 178);
+  --color-teal-300: oklch(78.0% 0.108 178);
+  --color-teal-400: oklch(68.0% 0.118 178);
+  --color-teal-500: oklch(58.0% 0.112 178);
+  --color-teal-600: oklch(49.0% 0.098 178);
+  --color-teal-700: oklch(41.0% 0.082 178);
+  --color-teal-800: oklch(33.0% 0.064 178);
+  --color-teal-900: oklch(26.0% 0.048 178);
+  --color-teal-950: oklch(17.0% 0.030 178);
+
+  /* ── Danger (hue 25 · red-orange, destructive actions) ───────────────────── */
+  --color-danger-50:  oklch(97.0% 0.018 25);
+  --color-danger-100: oklch(92.0% 0.045 25);
+  --color-danger-200: oklch(84.0% 0.085 25);
+  --color-danger-300: oklch(74.0% 0.130 25);
+  --color-danger-400: oklch(62.0% 0.165 25);
+  --color-danger-500: oklch(50.0% 0.185 25);
+  --color-danger-600: oklch(42.0% 0.175 25);
+  --color-danger-700: oklch(34.0% 0.155 25);
+  --color-danger-800: oklch(27.0% 0.120 25);
+  --color-danger-900: oklch(20.0% 0.085 25);
+  --color-danger-950: oklch(13.0% 0.050 25);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Surface shorthand aliases  →  bg-base, bg-raised, bg-overlay, etc.
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-base:           var(--color-surface-base);
+  --color-raised:         var(--color-surface-raised);
+  --color-overlay:        var(--color-surface-overlay);
+  --color-sunken:         var(--color-surface-sunken);
+  --color-border:         var(--color-surface-border);
+  --color-border-subtle:  var(--color-surface-border-subtle);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Ink shorthand aliases  →  text-primary, text-secondary, text-muted
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-primary:   var(--color-ink-primary);
+  --color-secondary: var(--color-ink-secondary);
+  --color-muted:     var(--color-ink-muted);
+  --color-inverse:   var(--color-ink-inverse);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Accent aliases (teal interactive)  →  text-accent, bg-accent-subtle
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-accent:        var(--color-ink-accent);
+  --color-accent-hover:  var(--color-ink-accent-hover);
+  --color-accent-subtle: var(--color-ink-accent-subtle);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Danger aliases  →  text-danger, bg-danger-subtle
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-danger:        var(--color-danger-500);
+  --color-danger-hover:  var(--color-danger-600);
+  --color-danger-subtle: var(--semantic-danger-subtle);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     NAG annotation colors  →  text-nag-brilliant, bg-nag-brilliant-subtle, etc.
+     Mode-aware: light/dark values swap via CSS variables in @layer base.
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-nag-brilliant:          var(--nag-brilliant);
+  --color-nag-brilliant-subtle:   var(--nag-brilliant-subtle);
+  --color-nag-good:               var(--nag-good);
+  --color-nag-good-subtle:        var(--nag-good-subtle);
+  --color-nag-interesting:        var(--nag-interesting);
+  --color-nag-interesting-subtle: var(--nag-interesting-subtle);
+  --color-nag-dubious:            var(--nag-dubious);
+  --color-nag-dubious-subtle:     var(--nag-dubious-subtle);
+  --color-nag-mistake:            var(--nag-mistake);
+  --color-nag-mistake-subtle:     var(--nag-mistake-subtle);
+  --color-nag-blunder:            var(--nag-blunder);
+  --color-nag-blunder-subtle:     var(--nag-blunder-subtle);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Engine identity colors  →  text-engine-1, bg-engine-1-subtle, etc.
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-engine-1:        var(--engine-1);
+  --color-engine-1-subtle: var(--engine-1-subtle);
+  --color-engine-2:        var(--engine-2);
+  --color-engine-2-subtle: var(--engine-2-subtle);
+  --color-engine-3:        var(--engine-3);
+  --color-engine-3-subtle: var(--engine-3-subtle);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Semantic status  →  text-success, bg-warning-subtle, etc.
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-success:        var(--status-success);
+  --color-success-subtle: var(--status-success-subtle);
+  --color-warning:        var(--status-warning);
+  --color-warning-subtle: var(--status-warning-subtle);
+  --color-info:           var(--status-info);
+  --color-info-subtle:    var(--status-info-subtle);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Chess-specific (static — represent piece colors, not UI mode)
+     →  text-chess-white, bg-chess-black, text-chess-draw
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-chess-white: oklch(97% 0.003 0);
+  --color-chess-black: oklch(22% 0.005 0);
+  --color-chess-draw:  var(--color-ink-muted);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Brand scales (alias raw scales for semantic naming)
+     →  bg-primary-500, text-secondary-300, border-neutral-200, etc.
+     ═══════════════════════════════════════════════════════════════════════════ */
+
+  /* Primary brand — Olive */
+  --color-primary-50:  var(--color-olive-50);
+  --color-primary-100: var(--color-olive-100);
+  --color-primary-200: var(--color-olive-200);
+  --color-primary-300: var(--color-olive-300);
+  --color-primary-400: var(--color-olive-400);
+  --color-primary-500: var(--color-olive-500);
+  --color-primary-600: var(--color-olive-600);
+  --color-primary-700: var(--color-olive-700);
+  --color-primary-800: var(--color-olive-800);
+  --color-primary-900: var(--color-olive-900);
+  --color-primary-950: var(--color-olive-950);
+
+  /* Secondary brand — Teal */
+  --color-secondary-50:  var(--color-teal-50);
+  --color-secondary-100: var(--color-teal-100);
+  --color-secondary-200: var(--color-teal-200);
+  --color-secondary-300: var(--color-teal-300);
+  --color-secondary-400: var(--color-teal-400);
+  --color-secondary-500: var(--color-teal-500);
+  --color-secondary-600: var(--color-teal-600);
+  --color-secondary-700: var(--color-teal-700);
+  --color-secondary-800: var(--color-teal-800);
+  --color-secondary-900: var(--color-teal-900);
+  --color-secondary-950: var(--color-teal-950);
+
+  /* Neutral — Slate */
+  --color-neutral-50:  var(--color-slate-50);
+  --color-neutral-100: var(--color-slate-100);
+  --color-neutral-200: var(--color-slate-200);
+  --color-neutral-300: var(--color-slate-300);
+  --color-neutral-400: var(--color-slate-400);
+  --color-neutral-500: var(--color-slate-500);
+  --color-neutral-600: var(--color-slate-600);
+  --color-neutral-700: var(--color-slate-700);
+  --color-neutral-800: var(--color-slate-800);
+  --color-neutral-900: var(--color-slate-900);
+  --color-neutral-950: var(--color-slate-950);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Typography
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --font-display: "'Playfair Display'", Georgia, serif;
+  --font-body:    "'DM Sans'", sans-serif;
+  --font-mono:    "'JetBrains Mono'", monospace;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Shadcn compatibility layer
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --color-background:             var(--color-surface-base);
+  --color-foreground:             var(--color-ink-primary);
+  --color-card:                   var(--color-surface-raised);
+  --color-card-foreground:        var(--color-ink-primary);
+  --color-muted-foreground:       var(--color-ink-secondary);
+  --color-input:                  var(--color-surface-border);
+  --color-ring:                   var(--color-ink-accent);
+  --color-destructive:            var(--color-danger-500);
+  --color-destructive-foreground: oklch(100% 0 0);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Animations
+     ═══════════════════════════════════════════════════════════════════════════ */
+  --animate-fade-in: fade-in 260ms ease-out forwards;
+
+  @keyframes fade-in {
+    0%   { opacity: 0; transform: translateY(6px); }
+    100% { opacity: 1; transform: translateY(0);   }
+  }
+}
+
+/* =============================================================================
+   Semantic tokens — light (:root) and dark (.dark)
+
+   Surfaces use the Slate neutral scale for a clean, cool foundation.
+   Olive brand pops as an accent against the neutral backdrop.
+   All NAG / engine / status colors are mode-aware.
+   ============================================================================= */
+@layer base {
+  :root {
+    /* ── Surfaces ────────────────────────────────────────────────────────────── */
+    --color-surface-base:           oklch(97.0% 0.006 210);
+    --color-surface-raised:         oklch(99.5% 0.002 210);
+    --color-surface-overlay:        oklch(100%  0     0);
+    --color-surface-sunken:         oklch(94.5% 0.010 210);
+    --color-surface-border:         oklch(90.0% 0.014 210);
+    --color-surface-border-subtle:  oklch(93.0% 0.010 210);
+
+    /* ── Text / Ink ──────────────────────────────────────────────────────────── */
+    --color-ink-primary:     oklch(20.0% 0.020 210);
+    --color-ink-secondary:   oklch(44.0% 0.036 210);
+    --color-ink-muted:       oklch(62.0% 0.030 210);
+    --color-ink-inverse:     oklch(100%  0     0);
+
+    /* ── Accent (Teal interactive) ───────────────────────────────────────────── */
+    --color-ink-accent:        oklch(46.0% 0.100 178);
+    --color-ink-accent-hover:  oklch(40.0% 0.088 178);
+    --color-ink-accent-subtle: oklch(46.0% 0.100 178 / 10%);
+
+    /* ── Danger ──────────────────────────────────────────────────────────────── */
+    --semantic-danger-subtle: oklch(50.0% 0.185 25 / 10%);
+
+    /* ── NAG annotations ─────────────────────────────────────────────────────
+       Hues: brilliant 195 · good 152 · interesting 240
+              dubious 90 · mistake 35 · blunder 25
+       ──────────────────────────────────────────────────────────────────────── */
+    --nag-brilliant:        oklch(46.0% 0.130 195);
+    --nag-brilliant-subtle: oklch(46.0% 0.130 195 / 12%);
+    --nag-good:             oklch(44.0% 0.130 152);
+    --nag-good-subtle:      oklch(44.0% 0.130 152 / 12%);
+    --nag-interesting:      oklch(48.0% 0.130 240);
+    --nag-interesting-subtle:oklch(48.0% 0.130 240 / 12%);
+    --nag-dubious:          oklch(50.0% 0.130 90);
+    --nag-dubious-subtle:   oklch(50.0% 0.130 90  / 12%);
+    --nag-mistake:          oklch(50.0% 0.160 35);
+    --nag-mistake-subtle:   oklch(50.0% 0.160 35  / 12%);
+    --nag-blunder:          oklch(48.0% 0.180 25);
+    --nag-blunder-subtle:   oklch(48.0% 0.180 25  / 12%);
+
+    /* ── Engine identity ─────────────────────────────────────────────────────
+       Hues: stockfish 265 (indigo) · maia 305 (violet) · engine-3 340 (rose)
+       ──────────────────────────────────────────────────────────────────────── */
+    --engine-1:        oklch(48.0% 0.155 265);
+    --engine-1-subtle: oklch(48.0% 0.155 265 / 12%);
+    --engine-2:        oklch(50.0% 0.155 305);
+    --engine-2-subtle: oklch(50.0% 0.155 305 / 12%);
+    --engine-3:        oklch(50.0% 0.150 340);
+    --engine-3-subtle: oklch(50.0% 0.150 340 / 12%);
+
+    /* ── Semantic status ─────────────────────────────────────────────────────── */
+    --status-success:        oklch(44.0% 0.130 152);
+    --status-success-subtle: oklch(44.0% 0.130 152 / 12%);
+    --status-warning:        oklch(50.0% 0.130 90);
+    --status-warning-subtle: oklch(50.0% 0.130 90  / 12%);
+    --status-info:           oklch(48.0% 0.130 250);
+    --status-info-subtle:    oklch(48.0% 0.130 250 / 12%);
+  }
+
+  .dark {
+    /* ── Surfaces ────────────────────────────────────────────────────────────── */
+    --color-surface-base:           oklch(17.5% 0.018 210);
+    --color-surface-raised:         oklch(23.0% 0.024 210);
+    --color-surface-overlay:        oklch(28.0% 0.028 210);
+    --color-surface-sunken:         oklch(14.0% 0.014 210);
+    --color-surface-border:         oklch(32.0% 0.030 210);
+    --color-surface-border-subtle:  oklch(26.0% 0.024 210);
+
+    /* ── Text / Ink ──────────────────────────────────────────────────────────── */
+    --color-ink-primary:     oklch(95.0% 0.006 210);
+    --color-ink-secondary:   oklch(72.0% 0.026 210);
+    --color-ink-muted:       oklch(52.0% 0.034 210);
+    --color-ink-inverse:     oklch(17.5% 0.018 210);
+
+    /* ── Accent (Teal interactive) ───────────────────────────────────────────── */
+    --color-ink-accent:        oklch(70.0% 0.118 178);
+    --color-ink-accent-hover:  oklch(60.0% 0.112 178);
+    --color-ink-accent-subtle: oklch(70.0% 0.118 178 / 12%);
+
+    /* ── Danger ──────────────────────────────────────────────────────────────── */
+    --semantic-danger-subtle: oklch(68.0% 0.160 25 / 15%);
+
+    /* ── NAG annotations ─────────────────────────────────────────────────────── */
+    --nag-brilliant:        oklch(78.0% 0.120 195);
+    --nag-brilliant-subtle: oklch(78.0% 0.120 195 / 15%);
+    --nag-good:             oklch(75.0% 0.120 152);
+    --nag-good-subtle:      oklch(75.0% 0.120 152 / 15%);
+    --nag-interesting:      oklch(76.0% 0.120 240);
+    --nag-interesting-subtle:oklch(76.0% 0.120 240 / 15%);
+    --nag-dubious:          oklch(78.0% 0.120 90);
+    --nag-dubious-subtle:   oklch(78.0% 0.120 90  / 15%);
+    --nag-mistake:          oklch(76.0% 0.145 35);
+    --nag-mistake-subtle:   oklch(76.0% 0.145 35  / 15%);
+    --nag-blunder:          oklch(72.0% 0.160 25);
+    --nag-blunder-subtle:   oklch(72.0% 0.160 25  / 15%);
+
+    /* ── Engine identity ─────────────────────────────────────────────────────── */
+    --engine-1:        oklch(74.0% 0.140 265);
+    --engine-1-subtle: oklch(74.0% 0.140 265 / 15%);
+    --engine-2:        oklch(76.0% 0.140 305);
+    --engine-2-subtle: oklch(76.0% 0.140 305 / 15%);
+    --engine-3:        oklch(76.0% 0.135 340);
+    --engine-3-subtle: oklch(76.0% 0.135 340 / 15%);
+
+    /* ── Semantic status ─────────────────────────────────────────────────────── */
+    --status-success:        oklch(75.0% 0.120 152);
+    --status-success-subtle: oklch(75.0% 0.120 152 / 15%);
+    --status-warning:        oklch(78.0% 0.120 90);
+    --status-warning-subtle: oklch(78.0% 0.120 90  / 15%);
+    --status-info:           oklch(76.0% 0.120 250);
+    --status-info-subtle:    oklch(76.0% 0.120 250 / 15%);
+  }
+}
+
+/* =============================================================================
+   Sidebar variables
+   ============================================================================= */
+:root {
+  --sidebar:                    var(--color-surface-base);
+  --sidebar-foreground:         var(--color-ink-primary);
+  --sidebar-primary:            var(--color-ink-accent);
+  --sidebar-primary-foreground: var(--color-surface-raised);
+  --sidebar-accent:             var(--color-surface-raised);
+  --sidebar-accent-foreground:  var(--color-ink-primary);
+  --sidebar-border:             var(--color-surface-border-subtle);
+  --sidebar-ring:               var(--color-ink-accent);
+}
+
+.dark {
+  --sidebar:                    var(--color-surface-base);
+  --sidebar-foreground:         var(--color-ink-primary);
+  --sidebar-primary:            var(--color-ink-accent);
+  --sidebar-primary-foreground: var(--color-surface-base);
+  --sidebar-accent:             var(--color-surface-raised);
+  --sidebar-accent-foreground:  var(--color-ink-primary);
+  --sidebar-border:             var(--color-surface-border-subtle);
+  --sidebar-ring:               var(--color-ink-accent);
+}
+
+@theme inline {
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}

@@ -1,0 +1,17 @@
+# Cursor Rules for Chess Lens
+
+## Context Loading
+The `.ai/` folder contains project-specific AI context, documentation, and guidelines that should be automatically considered when working on this codebase.
+
+## Project Context
+- This is a chess application built with Electron (electron-forge)
+- Frontend: Vue.js with TypeScript
+- Build tool: Vite
+- Backend: Electron main process
+
+## AI Folder
+The `.ai/` folder should be included in context for all AI interactions to provide:
+- Project-specific guidelines
+- Architecture decisions
+- Development patterns
+- Domain knowledge about chess functionality
