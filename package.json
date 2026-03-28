@@ -1,7 +1,7 @@
 {
   "name": "chess-lens",
   "productName": "Chess Lens",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "description": "A desktop chess analysis tool",
   "main": ".vite/build/main.js",
   "private": true,
