@@ -28,7 +28,7 @@ const config: ForgeConfig = {
     new PublisherGithub({
       repository: {
         owner: 'jmbuss',
-        name: 'chess-lens',
+        name: 'chess-lens-electron',
       },
       prerelease: false,
     }),
