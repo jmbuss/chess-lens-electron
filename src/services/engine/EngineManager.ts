@@ -242,7 +242,8 @@ export class EngineManager {
    */
   private resolveLc0Binary(): string {
     const platformDir = this.getPlatformDir()
-    const binaryPath = path.join(this.resourcesPath, platformDir, 'lc0', 'lc0')
+    const ext = process.platform === 'win32' ? '.exe' : ''
+    const binaryPath = path.join(this.resourcesPath, platformDir, 'lc0', `lc0${ext}`)
 
     if (!fs.existsSync(binaryPath)) {
       throw new Error(`lc0 binary not found at ${binaryPath}`)
@@ -274,14 +275,16 @@ export class EngineManager {
 
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name)
-      if (entry.isFile() && entry.name.startsWith(namePrefix) && !entry.name.includes('.')) {
-        // Check if it looks like a binary (no file extension)
-        try {
-          const stat = fs.statSync(fullPath)
-          // Must be a non-trivial file size (> 100KB) to be a binary
-          if (stat.size > 100_000) return fullPath
-        } catch {
-          // Skip files we can't stat
+      if (entry.isFile() && entry.name.startsWith(namePrefix)) {
+        const isNoExt = !entry.name.includes('.')
+        const isExe = entry.name.endsWith('.exe')
+        if (isNoExt || isExe) {
+          try {
+            const stat = fs.statSync(fullPath)
+            if (stat.size > 100_000) return fullPath
+          } catch {
+            // Skip files we can't stat
+          }
         }
       }
       if (entry.isDirectory()) {
