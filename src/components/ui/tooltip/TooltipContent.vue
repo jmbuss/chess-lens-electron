@@ -9,8 +9,12 @@ defineOptions({
   inheritAttrs: false,
 })
 
-const props = withDefaults(defineProps<TooltipContentProps & { class?: HTMLAttributes["class"] }>(), {
+const props = withDefaults(defineProps<TooltipContentProps & {
+  class?: HTMLAttributes["class"]
+  arrowClass?: HTMLAttributes["class"]
+}>(), {
   sideOffset: 4,
+  arrowClass: 'bg-foreground fill-foreground',
 })
 
 const emits = defineEmits<TooltipContentEmits>()
@@ -28,7 +32,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
     >
       <slot />
 
-      <TooltipArrow class="bg-foreground fill-foreground z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
+      <TooltipArrow :class="cn('z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]', props.arrowClass)" />
     </TooltipContent>
   </TooltipPortal>
 </template>

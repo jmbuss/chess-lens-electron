@@ -1,4 +1,4 @@
-import type { UCIInfoLine, UCIBestMove, UCIOption, UCIScore } from './types'
+import type { UCIInfoLine, UCIBestMove, UCIOption, UCIScore, WDL } from './types'
 
 /**
  * Parse a UCI "info" line into structured data.
@@ -19,6 +19,7 @@ export function parseInfoLine(line: string): UCIInfoLine | null {
   let nps: number | undefined
   let time: number | undefined
   let pv: string[] = []
+  let wdl: WDL | undefined
   let tbhits: number | undefined
   let hashfull: number | undefined
 
@@ -40,6 +41,13 @@ export function parseInfoLine(line: string): UCIInfoLine | null {
           if (scoreType === 'cp' || scoreType === 'mate') {
             score = { type: scoreType, value: scoreValue }
           }
+        }
+        break
+      case 'wdl':
+        wdl = {
+          win: parseInt(tokens[++i], 10),
+          draw: parseInt(tokens[++i], 10),
+          loss: parseInt(tokens[++i], 10),
         }
         break
       case 'nodes':
@@ -78,6 +86,7 @@ export function parseInfoLine(line: string): UCIInfoLine | null {
     seldepth,
     multipv,
     score,
+    wdl,
     nodes,
     nps,
     time,

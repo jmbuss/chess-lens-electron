@@ -7,10 +7,10 @@ import { useInjectedGameAnalysis } from '../composables/provideGameAnalysis'
 import { useHumanMoveAnalysis } from '../composables/useHumanMoveAnalysis'
 import type { HumanMovePrediction } from 'src/services/engine/types'
 import type { GameChildNode } from '../composables/types'
-import { nagSymbol, nagBgClass as getNagBgClass } from 'src/utils/chess/nag'
+import { nagSymbol, nagBgClass as getNagBgClass, nagName } from 'src/utils/chess/nag'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { ChevronDown, Info } from 'lucide-vue-next'
+import { ChevronDown, Info, BookOpen } from 'lucide-vue-next'
 import EngineLineRow from './EngineLineRow.vue'
 
 const { currentFen, hoveredEvalMove, currentNode: treeNode } = useInjectedGameNavigator()
@@ -51,6 +51,7 @@ const nextAnalysisNode = computed(() => {
 
 const moveSan = computed(() => nextMoveNode.value?.data.san ?? null)
 const nag = computed(() => nextAnalysisNode.value?.nag ?? null)
+const isBookMove = computed(() => nextAnalysisNode.value?.isBookMove ?? false)
 
 const hasAugmentedMaia = computed(() => augmentedMaiaFloor.value !== null || augmentedMaiaCeiling.value !== null)
 
@@ -197,14 +198,27 @@ const plainCeilingProbs = computed((): number[] =>
         <CollapsibleContent class="px-4 pb-3">
           <div class="flex items-center gap-3">
             <span class="font-mono text-[1rem] font-bold">{{ moveSan }}</span>
-            <span
-              v-if="nagLabel"
-              class="text-sm font-bold px-2 py-0.5 rounded"
-              :class="nagBgClass"
-              :title="`NAG: ${nagLabel}`"
-            >
-              {{ nagLabel }}
-            </span>
+            <TooltipProvider v-if="isBookMove">
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <BookOpen class="h-4 w-4 shrink-0 text-secondary" />
+                </TooltipTrigger>
+                <TooltipContent side="right">Opening book move</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider v-if="nagLabel">
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <span
+                    class="text-sm font-bold px-2 py-0.5 rounded cursor-default"
+                    :class="nagBgClass"
+                  >
+                    {{ nagLabel }}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="right">{{ nagName(nag) }}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           <span class="ml-auto font-mono text-sm font-semibold" :class="evalClass">
             {{ formatEval(nextAnalysisNode?.engineResult?.evalCp ?? null, nextAnalysisNode?.engineResult?.evalMate ?? null) }}
           </span>

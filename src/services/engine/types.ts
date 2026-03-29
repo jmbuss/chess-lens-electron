@@ -26,11 +26,19 @@ export interface UCIScore {
   value: number
 }
 
+/** Win/Draw/Loss probabilities from Stockfish (per-mille, 0-1000). */
+export interface WDL {
+  win: number
+  draw: number
+  loss: number
+}
+
 export interface UCIInfoLine {
   depth: number
   seldepth?: number
   multipv?: number
   score: UCIScore
+  wdl?: WDL
   nodes?: number
   nps?: number
   time?: number
@@ -68,6 +76,7 @@ export interface AnalysisLine {
   multipv: number
   depth: number
   score: UCIScore
+  wdl?: WDL
   pv: string[]
   nodes?: number
   nps?: number
@@ -85,27 +94,42 @@ export interface PositionAnalysis {
 // ==================== NAG Types ====================
 
 /**
- * Numeric Annotation Glyphs (NAG) from PGN standard.
- * Used to classify move quality.
+ * Move quality classifications.
+ *
+ * EP-based classifications (assigned by the classifier using Expected Points Loss):
+ *   Best, Excellent, Good, Inaccuracy, Mistake, Blunder
+ *
+ * Special classifications (future — require rules beyond EPL):
+ *   Brilliant, Great, Interesting, Miss
  */
 export enum NAG {
-  Brilliant = 3, // !!
-  Good = 1, // !
-  Interesting = 5, // !?
-  Neutral = 0, // (no annotation)
-  Dubious = 6, // ?!
-  Mistake = 2, // ?
-  Blunder = 4, // ??
+  Brilliant = 3,    // !! (special — future)
+  Great = 7,        // (special — future)
+  Best = 8,
+  Excellent = 9,
+  Good = 1,         // !
+  Interesting = 5,  // !? (special — future)
+  Neutral = 0,
+  Inaccuracy = 6,   // ?!
+  Mistake = 2,      // ?
+  Blunder = 4,      // ??
+  Miss = 10,        // (special — future)
+  BookMove = 11,    // Opening book move
 }
 
 export const NAG_SYMBOLS: Record<NAG, string> = {
   [NAG.Brilliant]: '!!',
+  [NAG.Great]: '',
+  [NAG.Best]: '',
+  [NAG.Excellent]: '',
   [NAG.Good]: '!',
   [NAG.Interesting]: '!?',
   [NAG.Neutral]: '',
-  [NAG.Dubious]: '?!',
+  [NAG.Inaccuracy]: '?!',
   [NAG.Mistake]: '?',
   [NAG.Blunder]: '??',
+  [NAG.Miss]: '',
+  [NAG.BookMove]: '',
 }
 
 export interface MoveNAG {
@@ -113,9 +137,6 @@ export interface MoveNAG {
   move: string
   nag: NAG
   symbol: string
-  winRateBefore: number
-  winRateAfter: number
-  winRateLoss: number
   bestMove: string
   isBestMove: boolean
 }

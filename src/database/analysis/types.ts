@@ -1,4 +1,4 @@
-import type { NAG, AnalysisLine, HumanMovePrediction, UCIScore } from 'src/services/engine/types'
+import type { NAG, AnalysisLine, HumanMovePrediction, UCIScore, WDL } from 'src/services/engine/types'
 
 // ==================== Game FSM ====================
 
@@ -56,6 +56,32 @@ export interface PositionalFeatures {
    * Positive = White is winning, negative = Black is winning.
    */
   finalEvaluation: number
+}
+
+// ==================== Positional Radar (runtime-only) ====================
+
+/** Per-axis radar value, split by side. */
+export interface RadarAxisValue {
+  white: number
+  black: number
+}
+
+/**
+ * Aggregated positional radar data for the whole game.
+ * Computed at runtime by the game machine; not persisted.
+ */
+export interface PositionalRadarData {
+  axes: {
+    pawnStructure: RadarAxisValue
+    space: RadarAxisValue
+    mobility: RadarAxisValue
+    kingSafety: RadarAxisValue
+    threats: RadarAxisValue
+    imbalance: RadarAxisValue
+  }
+  whiteMaterial: number
+  blackMaterial: number
+  hasData: boolean
 }
 
 // ==================== Analysis Mode ====================
@@ -175,22 +201,19 @@ export interface AnalysisNode {
   engineResult?: {
     evalCp: number | null
     evalMate: number | null
+    /** White-normalized WDL from Stockfish (win = P(White wins), loss = P(White loses)). */
+    wdl: WDL | null
     bestMove: string
     depth: number
     lines: AnalysisLine[]
   }
   criticalityScore?: number
   nag?: NAG
-  winRateBefore?: number
-  winRateAfter?: number
-  winRateLoss?: number
   isBestMove?: boolean
   /** Maia predictions at the floor rating (highest Maia level ≤ userRating). */
   maiaFloorResult?: MaiaAnalysisResult
   /** Maia predictions at the ceiling rating (lowest Maia level > userRating). */
   maiaCeilingResult?: MaiaAnalysisResult
-  /** Eval swing from the previous position (cp). Positive = the mover made things worse for themselves. */
-  evalSwing?: number
   /** Augmented Maia floor predictions with Stockfish evals per move. */
   augmentedMaiaFloor?: AugmentedMaiaResult
   /** Augmented Maia ceiling predictions with Stockfish evals per move. */

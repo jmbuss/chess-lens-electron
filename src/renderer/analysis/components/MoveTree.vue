@@ -23,15 +23,30 @@ const emit = defineEmits<{
 
 // ─── NAG helpers ────────────────────────────────────────────────────────────
 
+/**
+ * NAGs that warrant visual highlighting in the move tree (color + symbol).
+ * Positive NAGs (Best, Excellent, Good, Great) are intentionally excluded
+ * until special NAGs (Brilliant, Interesting) are fully implemented.
+ */
+const VISIBLE_NAGS = new Set<NAG>([
+  NAG.Brilliant,
+  NAG.Interesting,
+  NAG.Inaccuracy,
+  NAG.Mistake,
+  NAG.Blunder,
+  NAG.Miss,
+  NAG.BookMove,
+])
+
 function getNag(node: GameChildNode): NAG | null {
   // Engine-computed NAG takes priority
   if (props.analysisByFen) {
     const a = props.analysisByFen.get(node.data.fen)
-    if (a?.nag != null && a.nag !== NAG.Neutral) return a.nag
+    if (a?.nag != null && VISIBLE_NAGS.has(a.nag)) return a.nag
   }
   // Fall back to PGN-embedded NAG
   const raw = node.data.nags?.[0]
-  if (raw != null && raw !== NAG.Neutral && (Object.values(NAG) as number[]).includes(raw)) {
+  if (raw != null && (Object.values(NAG) as number[]).includes(raw) && VISIBLE_NAGS.has(raw as NAG)) {
     return raw as NAG
   }
   return null

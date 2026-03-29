@@ -137,6 +137,8 @@ body {
   --color-nag-mistake-subtle:     var(--nag-mistake-subtle);
   --color-nag-blunder:            var(--nag-blunder);
   --color-nag-blunder-subtle:     var(--nag-blunder-subtle);
+  --color-nag-book:               var(--nag-book);
+  --color-nag-book-subtle:        var(--nag-book-subtle);
 
   /* ═══════════════════════════════════════════════════════════════════════════
      Engine identity colors  →  text-engine-1, bg-engine-1-subtle, etc.
@@ -288,6 +290,8 @@ body {
     --nag-mistake-subtle:   oklch(50.0% 0.160 35  / 12%);
     --nag-blunder:          oklch(48.0% 0.180 25);
     --nag-blunder-subtle:   oklch(48.0% 0.180 25  / 12%);
+    --nag-book:             oklch(52.0% 0.130 75);
+    --nag-book-subtle:      oklch(52.0% 0.130 75  / 12%);
 
     /* ── Engine identity ─────────────────────────────────────────────────────
        Hues: stockfish 265 (indigo) · maia 305 (violet) · engine-3 340 (rose)
@@ -344,6 +348,8 @@ body {
     --nag-mistake-subtle:   oklch(76.0% 0.145 35  / 15%);
     --nag-blunder:          oklch(72.0% 0.160 25);
     --nag-blunder-subtle:   oklch(72.0% 0.160 25  / 15%);
+    --nag-book:             oklch(78.0% 0.115 75);
+    --nag-book-subtle:      oklch(78.0% 0.115 75  / 15%);
 
     /* ── Engine identity ─────────────────────────────────────────────────────── */
     --engine-1:        oklch(74.0% 0.140 265);

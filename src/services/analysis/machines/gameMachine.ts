@@ -1,11 +1,15 @@
 import { setup, assign, fromPromise } from 'xstate'
+import type { NAG } from 'src/services/engine/types'
 import type {
   AnalysisModeConfig,
   AnalysisNode,
   AnalysisPreset,
   GameAnalysisData,
   GameFSMState,
+  PositionalRadarData,
 } from 'src/database/analysis/types'
+import { expectedPointsFromWDL, moveAccuracyFromEPL } from 'src/services/analysis/MoveClassificationService'
+import { computePositionalRadarData } from 'src/services/analysis/featureAttribution'
 import { positionMachine } from './positionMachine'
 import type { PositionInput, PositionOutput, EngineResult } from './positionMachine'
 
@@ -102,6 +106,71 @@ export function buildMaiaCeilingEvalCurve(root: AnalysisNode): number[] {
   return curve
 }
 
+// ==================== Player Stats ====================
+
+export interface PlayerStats {
+  accuracy: number | null
+  nagCounts: Partial<Record<NAG, number>>
+  bookMoveCount: number
+  totalMoves: number
+  bestMoveCount: number
+}
+
+function emptyStats(): PlayerStats {
+  return { accuracy: null, nagCounts: {}, bookMoveCount: 0, totalMoves: 0, bestMoveCount: 0 }
+}
+
+/**
+ * Walk the mainline (children[0] chain) and compute per-player stats.
+ * Accuracy uses EPL derived on-the-fly from adjacent nodes' WDL.
+ * Currently a simple arithmetic mean — consider blending with a harmonic
+ * mean (penalizes inconsistency) once volatility weighting is added.
+ */
+export function computePlayerStats(root: AnalysisNode, color: 'w' | 'b'): PlayerStats {
+  const stats = emptyStats()
+  const moveAccuracies: number[] = []
+
+  let prev: AnalysisNode | undefined = root
+  let current: AnalysisNode | undefined = root.children[0]
+
+  while (current) {
+    if (current.color === color && current.fsmState === 'NAG_COMPLETE') {
+      stats.totalMoves++
+
+      if (current.isBookMove) {
+        stats.bookMoveCount++
+      } else {
+        if (current.isBestMove) stats.bestMoveCount++
+
+        const nag = current.nag
+        if (nag != null) {
+          stats.nagCounts[nag] = (stats.nagCounts[nag] ?? 0) + 1
+        }
+
+        const prevWdl = prev?.engineResult?.wdl ?? null
+        const currentWdl = current.engineResult?.wdl ?? null
+        if (prevWdl && currentWdl) {
+          const epBefore = expectedPointsFromWDL(prevWdl)
+          const epAfter = expectedPointsFromWDL(currentWdl)
+          const epLoss = color === 'w' ? epBefore - epAfter : epAfter - epBefore
+          moveAccuracies.push(moveAccuracyFromEPL(Math.max(0, epLoss)))
+        }
+      }
+    }
+
+    prev = current
+    current = current.children[0]
+  }
+
+  if (moveAccuracies.length > 0) {
+    stats.accuracy = moveAccuracies.reduce((a, b) => a + b, 0) / moveAccuracies.length
+  }
+
+  return stats
+}
+
+// ==================== Tree Mutation Helpers ====================
+
 /**
  * Return a new tree with `node` appended as a child of the node whose id
  * matches `parentId`. Uses path-cloning (structural sharing). Returns the
@@ -142,18 +211,13 @@ export function setNodeResult(
       engineResult: result.engineResult ?? undefined,
       criticalityScore: result.criticalityScore ?? undefined,
       nag: result.nag,
-      winRateBefore: result.winRateBefore,
-      winRateAfter: result.winRateAfter,
-      winRateLoss: result.winRateLoss,
       isBestMove: result.isBestMove,
       maiaFloorResult: result.maiaFloorResult ?? undefined,
       maiaCeilingResult: result.maiaCeilingResult ?? undefined,
-      evalSwing: result.evalSwing ?? undefined,
       augmentedMaiaFloor: result.augmentedMaiaFloor ?? undefined,
       augmentedMaiaCeiling: result.augmentedMaiaCeiling ?? undefined,
       floorMistakeProb: result.floorMistakeProb ?? undefined,
       ceilingMistakeProb: result.ceilingMistakeProb ?? undefined,
-      // Phase
       phaseScore: result.phaseResult?.phaseScore,
       openingScore: result.phaseResult?.openingScore,
       middlegameScore: result.phaseResult?.middlegameScore,
@@ -162,9 +226,7 @@ export function setNodeResult(
       isBookMove: result.phaseResult != null
         ? result.phaseResult.ecoMatch != null
         : undefined,
-      // Positional features
       positionalFeatures: result.positionalFeatures ?? undefined,
-      // Maia best-move evals
       maiaFloorBestEval: result.maiaFloorBestEval,
       maiaCeilingBestEval: result.maiaCeilingBestEval,
     }
@@ -223,6 +285,12 @@ export interface GameContext {
    * gets fresh deep analysis when they revisit a position.
    */
   deepAnalyzedNodeIds: Set<number>
+  /** Mainline stats for White, recomputed after each position completes. */
+  whiteStats: PlayerStats
+  /** Mainline stats for Black, recomputed after each position completes. */
+  blackStats: PlayerStats
+  /** Weighted positional radar data, recomputed after each node completes. */
+  positionalRadarData: PositionalRadarData
 }
 
 // ==================== Events ====================
@@ -277,6 +345,9 @@ export const gameMachine = setup({
     backgroundConfig: input.backgroundConfig,
     currentNodeId: input.currentNodeId,
     deepAnalyzedNodeIds: new Set<number>(),
+    whiteStats: computePlayerStats(input.data.tree, 'w'),
+    blackStats: computePlayerStats(input.data.tree, 'b'),
+    positionalRadarData: computePositionalRadarData(input.data.tree),
   }),
 
   states: {
@@ -367,6 +438,9 @@ export const gameMachine = setup({
                   deepAnalyzedNodeIds: wasDeepAnalysis
                     ? new Set([...context.deepAnalyzedNodeIds, context.currentNodeId])
                     : context.deepAnalyzedNodeIds,
+                  whiteStats: computePlayerStats(newTree, 'w'),
+                  blackStats: computePlayerStats(newTree, 'b'),
+                  positionalRadarData: computePositionalRadarData(newTree),
                 }
               }),
             },
@@ -406,6 +480,9 @@ export const gameMachine = setup({
                   evalCurve: buildEvalCurveFromMainLine(newTree),
                   maiaFloorEvalCurve: buildMaiaFloorEvalCurve(newTree),
                   maiaCeilingEvalCurve: buildMaiaCeilingEvalCurve(newTree),
+                  whiteStats: computePlayerStats(newTree, 'w'),
+                  blackStats: computePlayerStats(newTree, 'b'),
+                  positionalRadarData: computePositionalRadarData(newTree),
                 }
               }),
             },

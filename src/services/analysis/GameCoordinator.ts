@@ -221,15 +221,24 @@ export class GameCoordinator {
           const topLine = result.lines[0]
           const sideToMove = actorInput.fen.split(' ')[1]
           const sign = sideToMove === 'b' ? -1 : 1
+          const isBlack = sideToMove === 'b'
           // Normalize all scores to white's perspective so that positive = white winning
-          // throughout the entire pipeline (evalCp, evalMate, and every line score).
+          // throughout the entire pipeline (evalCp, evalMate, WDL, and every line score).
           const normalizedLines = result.lines.map(line => ({
             ...line,
             score: { type: line.score.type, value: line.score.value * sign },
+            wdl: line.wdl && isBlack
+              ? { win: line.wdl.loss, draw: line.wdl.draw, loss: line.wdl.win }
+              : line.wdl,
           }))
+          const topWdl = topLine?.wdl
+          const normalizedTopWdl = topWdl && isBlack
+            ? { win: topWdl.loss, draw: topWdl.draw, loss: topWdl.win }
+            : topWdl ?? null
           return {
             evalCp: topLine?.score.type === 'cp' ? topLine.score.value * sign : null,
             evalMate: topLine?.score.type === 'mate' ? topLine.score.value * sign : null,
+            wdl: normalizedTopWdl,
             bestMove: result.bestMove,
             depth: topLine?.depth ?? 0,
             lines: normalizedLines,

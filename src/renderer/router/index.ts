@@ -6,8 +6,9 @@ import { analysisRoutes } from '../analysis/router'
 import { designSystemRoutes } from '../design-system/router'
 import { settingsRoutes } from '../settings/router'
 import { profileRoutes } from '../profile/router'
+import { faqRoutes } from '../faq/router'
 
-const routes = [...homeRoutes, ...gettingStartedRoutes, ...analysisRoutes, ...designSystemRoutes, ...settingsRoutes, ...profileRoutes]
+const routes = [...homeRoutes, ...gettingStartedRoutes, ...analysisRoutes, ...designSystemRoutes, ...settingsRoutes, ...profileRoutes, ...faqRoutes]
 
 const router = createRouter({
   history: createMemoryHistory(),

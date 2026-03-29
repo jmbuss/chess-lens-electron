@@ -1,5 +1,5 @@
 import { setup, assign, fromPromise } from 'xstate'
-import type { NAG, AnalysisLine } from 'src/services/engine/types'
+import type { NAG, AnalysisLine, WDL } from 'src/services/engine/types'
 import type {
   AnalysisModeConfig,
   MaiaAnalysisResult,
@@ -14,6 +14,7 @@ import type { PhaseResult } from 'src/services/analysis/PhaseClassificationServi
 export interface EngineResult {
   evalCp: number | null
   evalMate: number | null
+  wdl: WDL | null
   bestMove: string
   depth: number
   lines: AnalysisLine[]
@@ -45,19 +46,14 @@ export interface PositionOutput {
   maiaCeilingResult: MaiaAnalysisResult | null
   augmentedMaiaFloor: AugmentedMaiaResult | null
   augmentedMaiaCeiling: AugmentedMaiaResult | null
-  evalSwing: number | null
   nag: NAG
-  winRateBefore: number
-  winRateAfter: number
-  winRateLoss: number
   isBestMove: boolean
+  moveAccuracy: number | null
   criticalityScore: number | null
   floorMistakeProb: MistakeProbability | null
   ceilingMistakeProb: MistakeProbability | null
-  // Positional data (from FEATURES branch)
   phaseResult: PhaseResult | null
   positionalFeatures: PositionalFeatures | null
-  // Derived from augmented Maia results after EVAL_MAIA_MOVES
   maiaFloorBestEval: number | null
   maiaCeilingBestEval: number | null
 }
@@ -81,12 +77,9 @@ interface PositionContext extends PositionInput {
   augmentedMaiaCeiling: AugmentedMaiaResult | null
 
   // CLASSIFY
-  evalSwing: number | null
   nag: NAG | null
-  winRateBefore: number | null
-  winRateAfter: number | null
-  winRateLoss: number | null
   isBestMove: boolean | null
+  moveAccuracy: number | null
   criticalityScore: number | null
   floorMistakeProb: MistakeProbability | null
   ceilingMistakeProb: MistakeProbability | null
@@ -124,15 +117,13 @@ export interface ClassifyPositionInput {
   augmentedMaiaCeiling: AugmentedMaiaResult | null
   uciMove: string | null
   color: 'w' | 'b' | null
+  isBookMove: boolean
 }
 
 export interface ClassifyPositionResult {
-  evalSwing: number | null
   nag: NAG
-  winRateBefore: number
-  winRateAfter: number
-  winRateLoss: number
   isBestMove: boolean
+  moveAccuracy: number | null
   criticalityScore: number
   floorMistakeProb: MistakeProbability | null
   ceilingMistakeProb: MistakeProbability | null
@@ -185,12 +176,9 @@ export const positionMachine = setup({
     positionalFeatures: null,
     augmentedMaiaFloor: null,
     augmentedMaiaCeiling: null,
-    evalSwing: null,
     nag: null,
-    winRateBefore: null,
-    winRateAfter: null,
-    winRateLoss: null,
     isBestMove: null,
+    moveAccuracy: null,
     criticalityScore: null,
     floorMistakeProb: null,
     ceilingMistakeProb: null,
@@ -201,12 +189,9 @@ export const positionMachine = setup({
     maiaCeilingResult: context.maiaCeilingResult,
     augmentedMaiaFloor: context.augmentedMaiaFloor,
     augmentedMaiaCeiling: context.augmentedMaiaCeiling,
-    evalSwing: context.evalSwing,
     nag: context.nag!,
-    winRateBefore: context.winRateBefore!,
-    winRateAfter: context.winRateAfter!,
-    winRateLoss: context.winRateLoss!,
     isBestMove: context.isBestMove!,
+    moveAccuracy: context.moveAccuracy,
     criticalityScore: context.criticalityScore,
     floorMistakeProb: context.floorMistakeProb,
     ceilingMistakeProb: context.ceilingMistakeProb,
@@ -328,7 +313,7 @@ export const positionMachine = setup({
     },
 
     /**
-     * Step 3: Derive eval swing, NAG, mistake probabilities.
+     * Step 3: Derive NAG, mistake probabilities.
      * Pure computation — no engine calls.
      * Skipped if engine analysis failed.
      */
@@ -348,16 +333,14 @@ export const positionMachine = setup({
           augmentedMaiaCeiling: context.augmentedMaiaCeiling,
           uciMove: context.uciMove,
           color: context.color,
+          isBookMove: context.phaseResult?.ecoMatch != null,
         }),
         onDone: {
           target: 'COMPLETE',
           actions: assign(({ event }) => ({
-            evalSwing: event.output.evalSwing,
             nag: event.output.nag,
-            winRateBefore: event.output.winRateBefore,
-            winRateAfter: event.output.winRateAfter,
-            winRateLoss: event.output.winRateLoss,
             isBestMove: event.output.isBestMove,
+            moveAccuracy: event.output.moveAccuracy,
             criticalityScore: event.output.criticalityScore,
             floorMistakeProb: event.output.floorMistakeProb,
             ceilingMistakeProb: event.output.ceilingMistakeProb,

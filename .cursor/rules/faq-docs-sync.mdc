@@ -1,0 +1,16 @@
+---
+description: Remind to check FAQ documentation pages when analysis feature logic changes
+globs: src/services/engine/analysis/NAGService.ts,src/services/analysis/MoveClassificationService.ts,src/services/engine/types.ts,src/utils/chess/nag.ts,src/services/analysis/machines/gameMachine.ts,src/renderer/analysis/components/ChessPlayerStatsPanel.vue,src/services/analysis/StockfishClassicEvalService.ts,src/services/analysis/PositionalFeaturesService.ts,src/services/analysis/featureAttribution.ts,src/services/analysis/machines/positionMachine.ts,src/renderer/analysis/composables/useGameSummaryRadar.ts,src/database/analysis/types.ts
+alwaysApply: false
+---
+
+# FAQ Documentation Sync
+
+This file is covered by in-app FAQ documentation. After making changes, check whether the corresponding FAQ page still accurately describes the behavior.
+
+Use the `update-faq-docs` skill for the full mapping of source files to FAQ pages and update instructions.
+
+Quick reference:
+- NAG / classification changes → `src/renderer/faq/pages/NagClassificationPage.vue`
+- Accuracy formula or aggregation changes → `src/renderer/faq/pages/AccuracyPage.vue`
+- Positional features / radar changes → `src/renderer/faq/pages/PositionalFeaturesPage.vue`

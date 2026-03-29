@@ -16,4 +16,8 @@
 
 
 ### EXPORT
-1. export PGN
+
+
+### Graphs
+1. Add mistake probability curve
+

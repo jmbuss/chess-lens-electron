@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { Home, Palette, RefreshCw, Settings, User } from 'lucide-vue-next'
+import { computed } from 'vue'
+import { Home, Palette, RefreshCw, Settings, User, HelpCircle, ChevronRight } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { useUser } from 'src/renderer/composables/user/useUser'
 import { useDarkMode } from 'src/renderer/composables/darkMode/useDarkMode'
 import { useSyncGames } from 'src/renderer/composables/syncGames/useSyncGames'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import {
   Sidebar,
   SidebarContent,
@@ -16,6 +18,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarSeparator,
   SidebarTrigger,
 } from '@/components/ui/sidebar'
@@ -30,6 +35,15 @@ const navItems = [
   { title: 'Games', path: '/', icon: Home },
   { title: 'Design System', path: '/design-system', icon: Palette },
 ]
+
+const faqItems = [
+  { title: 'Move Classifications', path: '/faq/nag-classification' },
+  { title: 'Accuracy', path: '/faq/accuracy' },
+  { title: 'Positional Features', path: '/faq/positional-features' },
+]
+
+const isFaqActive = computed(() => route.path.startsWith('/faq'))
+
 </script>
 
 <template>
@@ -72,6 +86,42 @@ const navItems = [
                 </Button>
               </SidebarMenuButton>
             </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+
+      <SidebarGroup>
+        <SidebarGroupLabel>Help</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            <Collapsible v-slot="{ open }" :default-open="isFaqActive" as-child>
+              <SidebarMenuItem>
+                <CollapsibleTrigger as-child>
+                  <SidebarMenuButton :is-active="isFaqActive" tooltip="FAQ">
+                    <HelpCircle />
+                    <span>FAQ</span>
+                    <ChevronRight
+                      class="ml-auto size-4 transition-transform duration-200"
+                      :class="open && 'rotate-90'"
+                    />
+                  </SidebarMenuButton>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <SidebarMenuSub>
+                    <SidebarMenuSubItem v-for="item in faqItems" :key="item.path">
+                      <SidebarMenuSubButton
+                        :is-active="route.path === item.path"
+                        as-child
+                      >
+                        <Button variant="ghost" class="justify-start" @click="router.replace(item.path)">
+                          <span>{{ item.title }}</span>
+                        </Button>
+                      </SidebarMenuSubButton>
+                    </SidebarMenuSubItem>
+                  </SidebarMenuSub>
+                </CollapsibleContent>
+              </SidebarMenuItem>
+            </Collapsible>
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>

@@ -30,12 +30,16 @@ function simulateLoad() {
 }
 
 const nagItems = [
-  { nag: NAG.Brilliant, label: 'Brilliant', description: 'An exceptional move that is hard to find' },
-  { nag: NAG.Good, label: 'Good', description: 'A strong move that improves the position' },
-  { nag: NAG.Interesting, label: 'Interesting', description: 'A curious move worth considering' },
-  { nag: NAG.Dubious, label: 'Dubious', description: 'A questionable move that may weaken the position' },
+  { nag: NAG.Brilliant, label: 'Brilliant', description: 'An exceptional move involving a piece sacrifice' },
+  { nag: NAG.Great, label: 'Great', description: 'A move critical to the game outcome' },
+  { nag: NAG.Best, label: 'Best', description: 'The engine\'s top choice with no EP loss' },
+  { nag: NAG.Excellent, label: 'Excellent', description: 'A near-perfect move with minimal EP loss' },
+  { nag: NAG.Good, label: 'Good', description: 'A strong move that keeps the position solid' },
+  { nag: NAG.Interesting, label: 'Interesting', description: 'A speculative or surprising move' },
+  { nag: NAG.Inaccuracy, label: 'Inaccuracy', description: 'A suboptimal move that slightly weakens the position' },
   { nag: NAG.Mistake, label: 'Mistake', description: 'A clear error that worsens the position' },
   { nag: NAG.Blunder, label: 'Blunder', description: 'A severe mistake that loses material or the game' },
+  { nag: NAG.Miss, label: 'Miss', description: 'Failing to capitalize on the opponent\'s mistake' },
 ]
 
 const engineItems = [
@@ -332,7 +336,7 @@ const evalChartOption = computed((): EChartsOption => {
                 <span class="text-primary">4. Ba4 Nf6 5. O-O </span>
                 <span :style="{ color: nagColor(NAG.Good) }">Be7! </span>
                 <span class="text-primary">6. Re1 b5 7. Bb3 d6 8. c3 </span>
-                <span :style="{ color: nagColor(NAG.Dubious) }">Na5?! </span>
+                <span :style="{ color: nagColor(NAG.Inaccuracy) }">Na5?! </span>
                 <span class="text-primary">9. Bc2 c5 10. d4 </span>
                 <span :style="{ color: nagColor(NAG.Mistake) }">Bg4? </span>
                 <span class="text-primary">11. d5 </span>

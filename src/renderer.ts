@@ -32,8 +32,9 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './renderer/App.vue'
 import router from './renderer/router'
+import { initAnalytics } from './services/analytics'
 
-console.log('👋 This message is being logged by "renderer.ts", included via Vite')
+initAnalytics()
 
 const pinia = createPinia()
 createApp(App).use(router).use(pinia).mount('#app')

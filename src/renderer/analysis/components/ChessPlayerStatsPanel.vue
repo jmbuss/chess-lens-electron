@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { NAG } from 'src/services/engine/types'
 import { nagSymbol, nagBgClass } from 'src/utils/chess/nag'
 import ChessPlayerIcon from 'src/renderer/components/Chess/ChessPlayerIcon.vue'
@@ -14,36 +13,33 @@ const props = defineProps<{
 
 const NAG_ORDER: NAG[] = [
   NAG.Brilliant,
+  NAG.Great,
+  NAG.Best,
+  NAG.Excellent,
   NAG.Good,
   NAG.Interesting,
   NAG.Neutral,
-  NAG.Dubious,
+  NAG.Inaccuracy,
   NAG.Mistake,
   NAG.Blunder,
+  NAG.Miss,
 ]
 
-const NAG_LABELS: Record<NAG, string> = {
+const NAG_LABELS: Partial<Record<NAG, string>> = {
   [NAG.Brilliant]:   'Brilliant',
+  [NAG.Great]:       'Great',
+  [NAG.Best]:        'Best',
+  [NAG.Excellent]:   'Excellent',
   [NAG.Good]:        'Good',
   [NAG.Interesting]: 'Interesting',
   [NAG.Neutral]:     'Normal',
-  [NAG.Dubious]:     'Dubious',
+  [NAG.Inaccuracy]:  'Inaccuracy',
   [NAG.Mistake]:     'Mistake',
   [NAG.Blunder]:     'Blunder',
+  [NAG.Miss]:        'Miss',
 }
 
-function visibleNags(stats: PlayerStats): NAG[] {
-  return NAG_ORDER.filter((nag) => (stats.nagCounts[nag] ?? 0) > 0)
-}
-
-const allNags = computed(() => {
-  const set = new Set<NAG>()
-  for (const nag of NAG_ORDER) {
-    if ((props.whiteStats.nagCounts[nag] ?? 0) > 0) set.add(nag)
-    if ((props.blackStats.nagCounts[nag] ?? 0) > 0) set.add(nag)
-  }
-  return NAG_ORDER.filter((n) => set.has(n))
-})
+const allNags = NAG_ORDER
 
 function accuracyBarClass(accuracy: number | null): string {
   if (accuracy === null) return 'bg-neutral-300 dark:bg-neutral-600'

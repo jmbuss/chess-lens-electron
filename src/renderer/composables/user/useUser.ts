@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/vue-query'
 import { UserData } from 'src/database/models'
 import { ipcService } from 'src/ipc/renderer'
 import { queryClient } from 'src/renderer/query/queryClient'
+import { identifyAppUser } from 'src/services/analytics'
 
 const createUserQueryKey = () => ['user'] as const
 
@@ -52,6 +53,7 @@ export const useUser = () => {
     {
       mutationFn: createUser,
       onSuccess: data => {
+        if (data) identifyAppUser(data)
         queryClient.invalidateQueries({ queryKey: ['user'] })
       },
     },

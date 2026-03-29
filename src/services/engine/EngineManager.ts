@@ -40,6 +40,7 @@ export class EngineManager {
       name: 'stockfish',
       binaryPath,
       options: {
+        UCI_ShowWDL: 'true',
         ...(options?.threads !== undefined && { Threads: options.threads }),
         ...(options?.hash !== undefined && { Hash: options.hash }),
       },

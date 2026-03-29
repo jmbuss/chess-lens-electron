@@ -238,7 +238,7 @@ async function testNAG(manager: EngineManager) {
     const symbolStr = c.symbol ? ` (${c.symbol})` : ''
     logResult(
       `Move ${c.moveIndex + 1}: ${c.move}`,
-      `NAG=${c.nag}${symbolStr} | WR: ${(c.winRateBefore * 100).toFixed(1)}% → ${(c.winRateAfter * 100).toFixed(1)}% | Loss: ${(c.winRateLoss * 100).toFixed(1)}% | Best: ${c.bestMove}`
+      `NAG=${c.nag}${symbolStr} | Best: ${c.bestMove} | isBest: ${c.isBestMove}`
     )
   }
 

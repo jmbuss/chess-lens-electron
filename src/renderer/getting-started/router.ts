@@ -10,6 +10,7 @@ import SetupUserPage from './pages/SetupUserPage.vue'
 import SetupPlatformIntegrationsPage from './pages/SetupPlatformIntegrationsPage.vue'
 import { prefetchSingleAppUser } from '../composables/user/useUser'
 import { prefetchPlatforms } from '../composables/platforms/usePlatforms'
+import { identifyAppUser } from 'src/services/analytics'
 
 /**
  * Getting Started routes configuration
@@ -51,6 +52,8 @@ export const gettingStartedGuard = async (to: any, from: any, next: any) => {
     next('/getting-started/setup-user')
     return true
   }
+
+  identifyAppUser(user)
 
   const platforms = await prefetchPlatforms(user.id)
   if (platforms.length === 0) {

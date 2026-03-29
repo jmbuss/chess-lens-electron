@@ -1,26 +1,24 @@
 import { Chess } from 'chess.js'
 import { UCIEngine } from '../UCIEngine'
-import { scoreToWinRate } from '../cpToWinRate'
-import { NAG, NAG_SYMBOLS, type MoveNAG, type AnalysisOptions } from '../types'
+import { NAG, NAG_SYMBOLS, type MoveNAG, type AnalysisOptions, type WDL } from '../types'
 
-/**
- * Win rate loss thresholds for NAG classification.
- * These are applied as the absolute drop in win rate (0-1 scale).
- *
- * Example: a win rate drop from 0.60 to 0.52 = 0.08 loss = Mistake
- */
-const NAG_THRESHOLDS = {
-  GOOD: 0.02, // < 2% loss = Good or Best
-  DUBIOUS: 0.05, // 2-5% loss = Dubious
-  MISTAKE: 0.1, // 5-10% loss = Mistake
-  // > 10% loss = Blunder
-} as const
+/** EP = (win + draw/2) / 1000 */
+function expectedPointsFromWDL(wdl: WDL): number {
+  return (wdl.win + wdl.draw / 2) / 1000
+}
+
+/** EPL thresholds matching Chess.com Expected Points Model. */
+const EPL_INACCURACY = 0.05
+const EPL_MISTAKE = 0.10
+const EPL_BLUNDER = 0.20
+const EPL_GOOD = 0.05
+const EPL_EXCELLENT = 0.02
 
 /**
  * NAGService classifies moves using Numeric Annotation Glyphs.
  *
- * It evaluates each position with Stockfish, computes win rate loss
- * using the empirical Maia cp-to-winrate table, and assigns NAG codes.
+ * Evaluates each position with Stockfish (WDL enabled), computes Expected
+ * Points Loss, and assigns NAG codes based on Chess.com's EP model.
  */
 export class NAGService {
   constructor(private engine: UCIEngine) {}
@@ -47,91 +45,72 @@ export class NAGService {
 
     await this.engine.newGame()
 
-    // Evaluate the starting position
     let prevLines = await this.engine.analyze(chess.fen(), analysisOptions)
-    let prevScore = prevLines[0]?.score
-    let prevTurn = chess.turn() // 'w' or 'b'
+    let prevWdl = prevLines[0]?.wdl ?? null
+    let prevTurn = chess.turn() as 'w' | 'b'
 
     for (let i = 0; i < moves.length; i++) {
       const move = moves[i]
       const bestMoveBeforePlay = prevLines[0]?.pv[0] ?? ''
+      const moverColor = prevTurn
 
-      // Apply the move
       const from = move.substring(0, 2)
       const to = move.substring(2, 4)
       const promotion = move.length > 4 ? move[4] : undefined
       chess.move({ from, to, promotion })
 
-      // Evaluate the new position
       const currentLines = await this.engine.analyze(chess.fen(), analysisOptions)
-      const currentScore = currentLines[0]?.score
+      const currentRawWdl = currentLines[0]?.wdl ?? null
 
-      if (prevScore && currentScore) {
-        // Compute win rates from the perspective of the player who just moved.
-        // UCI scores are always from the perspective of the side to move.
-        // Before the move: score is from the mover's perspective.
-        // After the move: score is from the opponent's perspective, so we invert.
-        const winRateBefore = scoreToWinRate(prevScore.type, prevScore.value)
-        const winRateAfter = 1 - scoreToWinRate(currentScore.type, currentScore.value)
+      // Normalize WDL to White's perspective.
+      // Engine WDL is side-to-move relative: after a move, the side to move
+      // is now the opponent. So we normalize based on whose turn it is now.
+      const currentTurn = chess.turn() as 'w' | 'b'
+      const normalizedPrevWdl = prevWdl && moverColor === 'b'
+        ? { win: prevWdl.loss, draw: prevWdl.draw, loss: prevWdl.win }
+        : prevWdl
+      const normalizedCurrentWdl = currentRawWdl && currentTurn === 'b'
+        ? { win: currentRawWdl.loss, draw: currentRawWdl.draw, loss: currentRawWdl.win }
+        : currentRawWdl
 
-        const winRateLoss = Math.max(0, winRateBefore - winRateAfter)
-        const isBestMove = move === bestMoveBeforePlay
+      const isBestMove = move === bestMoveBeforePlay
+      let nag = NAG.Neutral
 
-        const nag = this.classifyMove(winRateLoss, isBestMove, winRateBefore, winRateAfter)
-
-        results.push({
-          moveIndex: i,
-          move,
-          nag,
-          symbol: NAG_SYMBOLS[nag],
-          winRateBefore,
-          winRateAfter,
-          winRateLoss,
-          bestMove: bestMoveBeforePlay,
-          isBestMove,
-        })
+      if (normalizedPrevWdl && normalizedCurrentWdl) {
+        const epBefore = expectedPointsFromWDL(normalizedPrevWdl)
+        const epAfter = expectedPointsFromWDL(normalizedCurrentWdl)
+        const epLoss = moverColor === 'w'
+          ? epBefore - epAfter
+          : epAfter - epBefore
+        nag = this.classifyMove(epLoss, isBestMove)
       }
 
+      results.push({
+        moveIndex: i,
+        move,
+        nag,
+        symbol: NAG_SYMBOLS[nag],
+        bestMove: bestMoveBeforePlay,
+        isBestMove,
+      })
+
       prevLines = currentLines
-      prevScore = currentScore
-      prevTurn = chess.turn()
+      prevWdl = currentRawWdl
+      prevTurn = currentTurn
       onProgress?.(i + 1, moves.length)
     }
 
     return results
   }
 
-  /**
-   * Classify a single move based on win rate loss.
-   */
-  private classifyMove(
-    winRateLoss: number,
-    isBestMove: boolean,
-    winRateBefore: number,
-    winRateAfter: number
-  ): NAG {
-    // Best engine move
-    if (isBestMove) {
-      return NAG.Good
-    }
-
-    // Brilliant: found the only good move in a difficult position,
-    // or made a move that significantly improved a losing position
-    if (winRateAfter > winRateBefore + 0.05 && winRateBefore < 0.4) {
-      return NAG.Brilliant
-    }
-
-    // Classify by win rate loss
-    if (winRateLoss < NAG_THRESHOLDS.GOOD) {
-      return NAG.Neutral
-    }
-    if (winRateLoss < NAG_THRESHOLDS.DUBIOUS) {
-      return NAG.Dubious
-    }
-    if (winRateLoss < NAG_THRESHOLDS.MISTAKE) {
-      return NAG.Mistake
-    }
-
-    return NAG.Blunder
+  // TODO: Implement special classifications (Brilliant, Great, Interesting, Miss) per Chess.com rules
+  private classifyMove(epLoss: number, isBestMove: boolean): NAG {
+    if (epLoss >= EPL_BLUNDER) return NAG.Blunder
+    if (epLoss >= EPL_MISTAKE) return NAG.Mistake
+    if (epLoss >= EPL_INACCURACY) return NAG.Inaccuracy
+    if (epLoss <= 0 && isBestMove) return NAG.Best
+    if (epLoss < EPL_EXCELLENT) return NAG.Excellent
+    if (epLoss < EPL_GOOD) return NAG.Good
+    return NAG.Neutral
   }
 }

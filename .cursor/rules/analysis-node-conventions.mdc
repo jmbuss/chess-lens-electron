@@ -1,0 +1,36 @@
+---
+description: Conventions for AnalysisNode evaluation data (White-normalized, WDL, EP)
+globs: src/database/analysis/types.ts,src/services/analysis/**/*.ts,src/services/engine/**/*.ts,src/renderer/analysis/**/*.ts,src/renderer/analysis/**/*.vue
+alwaysApply: false
+---
+
+# AnalysisNode Evaluation Conventions
+
+All evaluation data stored on `AnalysisNode` is **White-normalized**:
+
+- **Positive values = White is better**, negative = Black is better
+- This applies to `evalCp`, `evalMate`, every `AnalysisLine.score`, and `WDL`
+- For WDL: `win` = probability White wins, `loss` = probability White loses, regardless of who moved
+- Normalization happens in `GameCoordinator` when receiving raw engine output (which is side-to-move relative). For Black's perspective: flip cp/mate sign, swap W and L.
+
+## Expected Points (EP)
+
+EP is derived from WDL, never persisted:
+
+```
+EP = (wdl.win + wdl.draw / 2) / 1000
+```
+
+EP ranges from 0.0 (White certain loss) to 1.0 (White certain win), 0.5 = equal.
+
+**Expected Points Loss (EPL)** for classification is computed from adjacent nodes' WDL:
+- White moved: `EPL = EP(parent) - EP(child)` (positive = White worsened their position)
+- Black moved: `EPL = EP(child) - EP(parent)` (positive = Black worsened their position)
+
+## Don't persist derived cross-node values
+
+Values derived from data on adjacent nodes (parent + child) should be computed on-the-fly, not stored on `AnalysisNode`. This includes:
+- `expectedPointsLoss` — derived from WDL on adjacent nodes
+- `evalSwing` — derived from `evalCp` on adjacent nodes
+
+Only store raw per-position data (e.g. `engineResult.evalCp`, `engineResult.wdl`).
