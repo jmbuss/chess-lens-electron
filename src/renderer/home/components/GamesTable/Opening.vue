@@ -13,7 +13,7 @@ const { opening } = useChessOpening({ ecoCode: ecoCodeRef, pgn: pgnRef })
 </script>
 
 <template>
-  <div v-if="opening" class="flex flex-col">
+  <div v-if="opening" class="flex flex-col min-w-64">
     <!-- <div class="text-xs text-gray-500">{{ opening.eco }}</div> -->
     <div class="text-xs">{{ opening.name }}</div>
     <div class="text-xs text-muted">{{ opening.moves }}</div>

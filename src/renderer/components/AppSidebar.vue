@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Home, Palette, RefreshCw, Settings, User, HelpCircle, ChevronRight } from 'lucide-vue-next'
+import logo from 'src/assets/logo.png'
 import { useRoute, useRouter } from 'vue-router'
 import { useUser } from 'src/renderer/composables/user/useUser'
 import { useDarkMode } from 'src/renderer/composables/darkMode/useDarkMode'
@@ -57,8 +58,8 @@ const isFaqActive = computed(() => route.path.startsWith('/faq'))
         <SidebarMenuItem>
           <SidebarMenuButton size="lg" as-child>
             <Button variant="ghost" class="justify-start" @click="router.replace('/')">
-              <div class="flex aspect-square size-8 items-center justify-center text-primary">
-                ♞
+              <div class="flex aspect-square size-8 items-center justify-center">
+                <img :src="logo" alt="Chess Lens" class="size-7 rounded" />
               </div>
               <div class="grid flex-1 text-left text-sm leading-tight">
                 <span class="truncate font-semibold font-display">Chess Lens</span>

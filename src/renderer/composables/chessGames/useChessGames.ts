@@ -1,20 +1,25 @@
 import { useQuery } from '@tanstack/vue-query'
 import { ipcService } from 'src/ipc/renderer'
 import { queryClient } from 'src/renderer/query/queryClient'
-import type { ChessGame, ChessGameData } from 'src/database/chess/types'
+import type { ChessGame, ChessGameDataWithAnalysis } from 'src/database/chess/types'
 
 const CHESS_GAMES_QUERY_KEY = ['chess-games'] as const
 
-const mapChessGameDataToChessGame = (data: ChessGameData): ChessGame => ({
+interface ChessGameWithAnalysis extends ChessGame {
+  analysisStatus: 'UNANALYZED' | 'ANALYZING' | 'COMPLETE' | null
+}
+
+const mapRow = (data: ChessGameDataWithAnalysis): ChessGameWithAnalysis => ({
   ...data,
   startTime: data.startTime ? new Date(data.startTime) : undefined,
   endTime: data.endTime ? new Date(data.endTime) : undefined,
   importedAt: new Date(data.importedAt),
+  analysisStatus: data.analysisStatus,
 })
 
-export const getChessGames = async (): Promise<ChessGame[]> => {
+export const getChessGames = async (): Promise<ChessGameWithAnalysis[]> => {
   const games = await ipcService.send('chess:getAll', undefined)
-  return games.map(mapChessGameDataToChessGame)
+  return games.map(mapRow)
 }
 
 export const useChessGames = () => {

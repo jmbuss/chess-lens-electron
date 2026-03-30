@@ -1,14 +1,33 @@
 <script setup lang="ts">
-import type { ColumnDef, Row } from '@tanstack/vue-table'
-import type { ChessGame } from 'src/database/chess/types'
-import { TimeClass } from 'src/database/chess/types'
+import type { ColumnDef, Row, SortingState } from '@tanstack/vue-table'
+import type { ChessGameWithMeta, GameResult } from 'src/database/chess/types'
 import UITable from 'src/renderer/components/Table/UITable.vue'
-import { RouterLink } from 'vue-router'
-import { h, computed } from 'vue'
+import { Badge } from '@/components/ui/badge'
+import { h, computed, ref } from 'vue'
 import { useChessGames } from 'src/renderer/composables/chessGames/useChessGames'
+import { useFavorites } from 'src/renderer/composables/favorites/useFavorites'
+import { usePlatforms } from 'src/renderer/composables/platforms/usePlatforms'
 import ChessPlayerIcon from 'src/renderer/components/Chess/ChessPlayerIcon.vue'
-import ChessResult from 'src/renderer/components/Chess/ChessResult.vue'
+import { getTerminationLabel, getTerminationBadgeVariant } from 'src/renderer/components/Chess/ChessResult.vue'
 import Opening from './Opening.vue'
+import SortableHeader from './SortableHeader.vue'
+import ColumnFilterPopover from './ColumnFilterPopover.vue'
+import FacetedCheckboxFilter from './FacetedCheckboxFilter.vue'
+import OpeningComboboxFilter from './OpeningComboboxFilter.vue'
+import FavoriteToggle from './FavoriteToggle.vue'
+import AnalysisStatusBadge from './AnalysisStatusBadge.vue'
+import GameActions from './GameActions.vue'
+import PlayerNameFilter from './PlayerNameFilter.vue'
+import RatingRangeFilter from './RatingRangeFilter.vue'
+import DateRangeFilter from './DateRangeFilter.vue'
+import {
+  playerNameFilterFn,
+  rangeFilterFn,
+  dateRangeFilterFn,
+  multiValueFilterFn,
+  resultSortOrder,
+} from './filterFns'
+import { TIME_CLASS_LABELS, formatTimeControl } from 'src/renderer/utils/formatTimeControl'
 
 const {
   chessGames,
@@ -16,114 +35,229 @@ const {
   chessGamesError,
 } = useChessGames()
 
-const TIME_CLASS_LABELS: Record<TimeClass, string> = {
-  [TimeClass.ULTRA_BULLET]: 'UltraBullet',
-  [TimeClass.BULLET]: 'Bullet',
-  [TimeClass.BLITZ]: 'Blitz',
-  [TimeClass.RAPID]: 'Rapid',
-  [TimeClass.CLASSICAL]: 'Classical',
-  [TimeClass.DAILY]: 'Daily',
-}
+const { favoriteIds, toggleFavorite } = useFavorites()
+const { getPlatformNameForGame } = usePlatforms()
 
-const formatTimeControl = (timeControl: ChessGame['timeControl']) => {
-  const label = TIME_CLASS_LABELS[timeControl.timeClass] ?? timeControl.timeClass
-  return `${label} · ${timeControl.base / 60}+${timeControl.increment}`
-}
+const sorting = ref<SortingState>([{ id: 'startTime', desc: true }])
 
 const formatDateTime = (date?: Date) => {
   if (!date) return '-'
   return date.toLocaleString()
 }
 
-const columns: ColumnDef<ChessGame>[] = [
+interface GamesTableRow extends ChessGameWithMeta {
+  userResult?: GameResult
+  resultLabel: string | null
+}
+
+const columns: ColumnDef<GamesTableRow>[] = [
   {
-    id: 'players',
-    header: 'Players',
-    cell: ({ row }: { row: Row<ChessGame> }) => {
-      return h('div', { class: 'flex flex-col' }, [
-        h('div', { class: 'text-sm flex items-center gap-2' }, [
-          h(ChessPlayerIcon, { color: 'white' }),
-          h('span', { class: 'text-sm' }, `${row.original.white.username}`),
-          h('span', { class: 'text-sm' }, ` (${row.original.white.rating ?? 'N/A'})`),
-        ]),
-        h('div', { class: 'text-sm flex items-center gap-2' }, [
-          h(ChessPlayerIcon, { color: 'black' }),
-          h('span', { class: 'text-sm' }, `${row.original.black.username}`),
-          h('span', { class: 'text-sm' }, ` (${row.original.black.rating ?? 'N/A'})`),
-        ]),
+    id: 'favorite',
+    header: ({ column }) => h(SortableHeader, { column, label: '★' }),
+    accessorKey: 'isFavorite',
+    enableSorting: true,
+    sortDescFirst: true,
+    cell: ({ row }) => {
+      return h(FavoriteToggle, {
+        isFavorite: row.original.isFavorite,
+        onToggle: () => toggleFavorite(row.original.id),
+      })
+    },
+    size: 50,
+  },
+  {
+    id: 'white',
+    header: ({ column }) => h('div', { class: 'flex items-center gap-1' }, [
+      h(ChessPlayerIcon, { color: 'white' }),
+      h(SortableHeader, { column, label: 'White' }),
+      h(ColumnFilterPopover, { column }, () => h(PlayerNameFilter, { column })),
+    ]),
+    accessorFn: (row) => row.white.username,
+    enableSorting: true,
+    filterFn: playerNameFilterFn,
+    cell: ({ row }: { row: Row<GamesTableRow> }) => {
+      return h('div', { class: 'flex items-center gap-2 whitespace-nowrap' }, [
+        h(ChessPlayerIcon, { color: 'white' }),
+        h('span', { class: 'text-sm' }, row.original.white.username),
       ])
     },
+  },
+  {
+    id: 'whiteRating',
+    header: ({ column }) => h('div', { class: 'flex items-center gap-1 whitespace-nowrap' }, [
+      h(SortableHeader, { column, label: 'White Rating' }),
+      h(ColumnFilterPopover, { column }, () => h(RatingRangeFilter, { column })),
+    ]),
+    accessorFn: (row) => row.white.rating ?? 0,
+    enableSorting: true,
+    filterFn: rangeFilterFn,
+    cell: ({ row }: { row: Row<GamesTableRow> }) => {
+      return h('span', { class: 'text-sm tabular-nums' }, String(row.original.white.rating ?? '-'))
+    },
+    size: 80,
+  },
+  {
+    id: 'black',
+    header: ({ column }) => h('div', { class: 'flex items-center gap-1' }, [
+      h(ChessPlayerIcon, { color: 'black' }),
+      h(SortableHeader, { column, label: 'Black' }),
+      h(ColumnFilterPopover, { column }, () => h(PlayerNameFilter, { column })),
+    ]),
+    accessorFn: (row) => row.black.username,
+    enableSorting: true,
+    filterFn: playerNameFilterFn,
+    cell: ({ row }: { row: Row<GamesTableRow> }) => {
+      return h('div', { class: 'flex items-center gap-2 whitespace-nowrap' }, [
+        h(ChessPlayerIcon, { color: 'black' }),
+        h('span', { class: 'text-sm' }, row.original.black.username),
+      ])
+    },
+  },
+  {
+    id: 'blackRating',
+    header: ({ column }) => h('div', { class: 'flex items-center gap-1 whitespace-nowrap' }, [
+      h(SortableHeader, { column, label: 'Black Rating' }),
+      h(ColumnFilterPopover, { column }, () => h(RatingRangeFilter, { column })),
+    ]),
+    accessorFn: (row) => row.black.rating ?? 0,
+    enableSorting: true,
+    filterFn: rangeFilterFn,
+    cell: ({ row }: { row: Row<GamesTableRow> }) => {
+      return h('span', { class: 'text-sm tabular-nums' }, String(row.original.black.rating ?? '-'))
+    },
+    size: 80,
   },
   {
     id: 'result',
-    header: 'Result',
-    cell: ({ row }: { row: Row<ChessGame> }) => {
-      return h('div', { class: 'flex flex-col' }, [
-        h('div', { class: 'text-sm flex items-center gap-2' }, [
-          h(ChessResult, { result: row.original.white.result }),
-        ]),
-        h('div', { class: 'text-sm flex items-center gap-2' }, [
-          h(ChessResult, { result: row.original.black.result }),
-        ]),
-      ])
+    header: ({ column }) => h('div', { class: 'flex items-center gap-1' }, [
+      h(SortableHeader, { column, label: 'Result' }),
+      h(ColumnFilterPopover, { column }, () => h(FacetedCheckboxFilter, { column })),
+    ]),
+    accessorKey: 'resultLabel',
+    enableSorting: true,
+    sortingFn: (rowA, rowB) => {
+      const a = resultSortOrder(rowA.original.userResult)
+      const b = resultSortOrder(rowB.original.userResult)
+      return a - b
+    },
+    filterFn: multiValueFilterFn,
+    cell: ({ row }: { row: Row<GamesTableRow> }) => {
+      const label = row.original.resultLabel
+      if (!label) return '-'
+      const variant = getTerminationBadgeVariant(row.original.userResult)
+      return h(Badge, { variant, class: 'whitespace-nowrap' }, () => label)
     },
   },
   {
-    id: 'termination',
-    header: 'Termination',
-    accessorKey: 'termination',
-    cell: ({ row }: { row: Row<ChessGame> }) => row.original.termination ?? '-',
-  },
-  {
     id: 'opening',
-    header: 'Opening',
-    accessorKey: 'opening',
-    cell: ({ row }: { row: Row<ChessGame> }) => {
+    header: ({ column }) => h('div', { class: 'flex items-center gap-1' }, [
+      h('span', 'Opening'),
+      h(ColumnFilterPopover, { column }, () => h(OpeningComboboxFilter, { column })),
+    ]),
+    accessorFn: (row) => row.opening?.name ?? '',
+    enableSorting: false,
+    filterFn: multiValueFilterFn,
+    cell: ({ row }: { row: Row<GamesTableRow> }) => {
       return h(Opening, { pgn: row.original.pgn ?? null })
     },
   },
   {
     id: 'moves',
-    header: 'Moves',
+    header: ({ column }) => h('div', { class: 'flex items-center gap-1' }, [
+      h(SortableHeader, { column, label: 'Moves' }),
+      h(ColumnFilterPopover, { column }, () => h(RatingRangeFilter, { column, label: 'Move Range' })),
+    ]),
     accessorKey: 'moveCount',
-    cell: ({ row }: { row: Row<ChessGame> }) => row.original.moveCount ?? '-',
+    enableSorting: true,
+    filterFn: rangeFilterFn,
+    cell: ({ row }: { row: Row<GamesTableRow> }) => row.original.moveCount ?? '-',
   },
   {
     id: 'timeControl',
-    header: 'Time Control',
-    accessorKey: 'timeControl',
-    cell: ({ row }: { row: Row<ChessGame> }) => {
+    header: ({ column }) => h('div', { class: 'flex items-center gap-1 whitespace-nowrap' }, [
+      h('span', 'Time Control'),
+      h(ColumnFilterPopover, { column }, () => h(FacetedCheckboxFilter, {
+        column,
+        labels: TIME_CLASS_LABELS,
+      })),
+    ]),
+    accessorFn: (row) => row.timeControl.timeClass,
+    enableSorting: false,
+    filterFn: multiValueFilterFn,
+    cell: ({ row }: { row: Row<GamesTableRow> }) => {
       return formatTimeControl(row.original.timeControl)
     },
   },
   {
     id: 'startTime',
-    header: 'Date',
+    header: ({ column }) => h('div', { class: 'flex items-center gap-1 whitespace-nowrap' }, [
+      h(SortableHeader, { column, label: 'Date' }),
+      h(ColumnFilterPopover, { column }, () => h(DateRangeFilter, { column })),
+    ]),
     accessorKey: 'startTime',
-    cell: ({ row }: { row: Row<ChessGame> }) => {
+    enableSorting: true,
+    filterFn: dateRangeFilterFn,
+    cell: ({ row }: { row: Row<GamesTableRow> }) => {
       return formatDateTime(row.original.startTime)
     },
   },
   {
     id: 'platform',
-    header: 'Platform',
+    header: ({ column }) => h('div', { class: 'flex items-center gap-1' }, [
+      h('span', 'Platform'),
+      h(ColumnFilterPopover, { column }, () => h(FacetedCheckboxFilter, { column })),
+    ]),
     accessorKey: 'platform',
-    cell: ({ row }: { row: Row<ChessGame> }) => row.original.platform,
+    enableSorting: false,
+    filterFn: multiValueFilterFn,
+    cell: ({ row }: { row: Row<GamesTableRow> }) => row.original.platform,
   },
   {
-    id: 'analysis',
-    header: 'Analysis',
-    cell: ({ row }: { row: Row<ChessGame> }) => {
-      return h(
-        RouterLink,
-        { to: `/analysis/${row.original.id}`, class: 'text-accent hover:underline' },
-        () => 'View'
-      )
+    id: 'analysisStatus',
+    header: ({ column }) => h('div', { class: 'flex items-center gap-1' }, [
+      h(SortableHeader, { column, label: 'Analyzed' }),
+      h(ColumnFilterPopover, { column }, () => h(FacetedCheckboxFilter, {
+        column,
+        labels: { COMPLETE: 'Complete', ANALYZING: 'Analyzing', UNANALYZED: 'Not Analyzed' },
+      })),
+    ]),
+    accessorFn: (row) => row.analysisStatus ?? 'UNANALYZED',
+    enableSorting: true,
+    filterFn: multiValueFilterFn,
+    cell: ({ row }: { row: Row<GamesTableRow> }) => {
+      return h(AnalysisStatusBadge, { status: row.original.analysisStatus })
+    },
+  },
+  {
+    id: 'actions',
+    header: 'Actions',
+    enableSorting: false,
+    cell: ({ row }: { row: Row<GamesTableRow> }) => {
+      return h(GameActions, { game: row.original })
     },
   },
 ]
 
-const data = computed(() => chessGames.value ?? [])
+const data = computed<GamesTableRow[]>(() => {
+  const games = chessGames.value ?? []
+  const favSet = new Set(favoriteIds.value ?? [])
+  return games.map(game => {
+    const username = getPlatformNameForGame(game)?.toLowerCase()
+    const userResult = username
+      ? (game.white.username.toLowerCase() === username
+        ? game.white.result
+        : game.black.result)
+      : undefined
+    const resultLabel = getTerminationLabel(game.termination, userResult)
+    return {
+      ...game,
+      isFavorite: favSet.has(game.id),
+      analysisStatus: game.analysisStatus ?? null,
+      userResult,
+      resultLabel,
+    }
+  })
+})
 </script>
 
 <template>
@@ -135,6 +269,8 @@ const data = computed(() => chessGames.value ?? [])
       :initial-page-size="20"
       :loading="isChessGamesLoading"
       :error="chessGamesError"
+      :sorting="sorting"
+      @update:sorting="sorting = $event"
     />
   </div>
 </template>

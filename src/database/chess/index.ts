@@ -2,6 +2,8 @@ export { ChessGameModel } from './model'
 export type {
   ChessGame,
   ChessGameData,
+  ChessGameDataWithAnalysis,
+  ChessGameWithMeta,
   ChessPlatform,
   GameVariant,
   TimeClass,

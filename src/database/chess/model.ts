@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 import type { BaseModel } from '../models/BaseModel'
-import type { ChessGameData, ChessGame } from './types'
+import type { ChessGameData, ChessGameDataWithAnalysis, ChessGame } from './types'
 import { PlayerColor } from './types'
 
 export class ChessGameModel implements BaseModel {
@@ -195,6 +195,20 @@ export class ChessGameModel implements BaseModel {
     return (
       db.prepare('SELECT * FROM chess_games ORDER BY startTime DESC').all() as any[]
     ).map(row => this.parseRow(row))
+  }
+
+  static findAllWithAnalysisStatus(db: Database.Database): ChessGameDataWithAnalysis[] {
+    const rows = db.prepare(`
+      SELECT cg.*,
+             json_extract(ga.state, '$.gameFsmState') as analysisFsmState
+      FROM chess_games cg
+      LEFT JOIN game_analyses ga ON cg.id = ga.game_id
+      ORDER BY cg.startTime DESC
+    `).all() as any[]
+    return rows.map(row => ({
+      ...this.parseRow(row),
+      analysisStatus: row.analysisFsmState ?? null,
+    }))
   }
 
   static findByPlatform(db: Database.Database, platform: string): ChessGameData[] {

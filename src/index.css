@@ -226,6 +226,8 @@ body {
   --color-foreground:             var(--color-ink-primary);
   --color-card:                   var(--color-surface-raised);
   --color-card-foreground:        var(--color-ink-primary);
+  --color-popover:                var(--color-surface-overlay);
+  --color-popover-foreground:     var(--color-ink-primary);
   --color-muted-foreground:       var(--color-ink-secondary);
   --color-input:                  var(--color-surface-border);
   --color-ring:                   var(--color-ink-accent);

@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { IpcMainEvent } from 'electron'
-import { ChessGameData, ChessGameModel } from 'src/database/chess'
+import { ChessGameModel } from 'src/database/chess'
+import type { ChessGameDataWithAnalysis } from 'src/database/chess/types'
 import { IpcHandler } from 'src/ipc/IPCHandler'
 import { IpcRequest, IpcResponse } from 'src/ipc/types'
 
@@ -8,7 +9,7 @@ declare module 'src/ipc/handlers' {
   export interface IpcChannels {
     'chess:getAll': {
       request: void
-      response: ChessGameData[]
+      response: ChessGameDataWithAnalysis[]
     }
   }
 }
@@ -23,10 +24,10 @@ export class ChessGetAllHandler extends IpcHandler {
   async handle(
     _event: IpcMainEvent,
     _request: IpcRequest<void>
-  ): Promise<IpcResponse<ChessGameData[]>> {
+  ): Promise<IpcResponse<ChessGameDataWithAnalysis[]>> {
     return {
       success: true,
-      data: ChessGameModel.findAll(this.db),
+      data: ChessGameModel.findAllWithAnalysisStatus(this.db),
     }
   }
 }

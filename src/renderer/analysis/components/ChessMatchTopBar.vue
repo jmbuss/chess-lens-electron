@@ -5,7 +5,7 @@ import { ChevronLeft } from 'lucide-vue-next'
 import { useInjectedChessGame } from '../composables/provideChessGame'
 import { useInjectedGameAnalysis } from '../composables/provideGameAnalysis'
 import { formatDateTime, ISO_DATE } from 'src/renderer/utils/formatDateTime';
-import { TimeClass } from 'src/database/chess/types';
+import { formatTimeControl } from 'src/renderer/utils/formatTimeControl'
 import { computed } from 'vue';
 import ChessTerminationBadge from 'src/renderer/components/Chess/ChessTerminationBadge.vue'
 import { useRouter } from 'vue-router'
@@ -15,20 +15,10 @@ const router = useRouter()
 const { chessGame } = useInjectedChessGame()
 const { progress, isComplete, gameFsmState } = useInjectedGameAnalysis()
 
-const TIME_CLASS_LABELS: Record<TimeClass, string> = {
-  [TimeClass.ULTRA_BULLET]: 'UltraBullet',
-  [TimeClass.BULLET]: 'Bullet',
-  [TimeClass.BLITZ]: 'Blitz',
-  [TimeClass.RAPID]: 'Rapid',
-  [TimeClass.CLASSICAL]: 'Classical',
-  [TimeClass.DAILY]: 'Daily',
-}
-
 const timeControlLabel = computed(() => {
   const tc = chessGame.value?.timeControl
   if (!tc) return null
-  const label = TIME_CLASS_LABELS[tc.timeClass] ?? tc.timeClass
-  return `${label} · ${tc.base / 60}+${tc.increment}`
+  return formatTimeControl(tc)
 })
 
 const openingLabel = computed(() => {

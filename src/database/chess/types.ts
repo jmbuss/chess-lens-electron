@@ -121,6 +121,14 @@ export interface ChessGame {
 }
 
 /**
+ * Runtime game with additional metadata from joined tables (favorites, analysis).
+ */
+export interface ChessGameWithMeta extends ChessGame {
+  isFavorite: boolean
+  analysisStatus: 'UNANALYZED' | 'ANALYZING' | 'COMPLETE' | null
+}
+
+/**
  * Database representation of a chess game (string timestamps for SQLite)
  */
 export interface ChessGameData {
@@ -141,4 +149,11 @@ export interface ChessGameData {
   startTime?: string
   endTime?: string
   importedAt: string
+}
+
+/**
+ * Database representation with analysis status from LEFT JOIN on game_analyses.
+ */
+export interface ChessGameDataWithAnalysis extends ChessGameData {
+  analysisStatus: 'UNANALYZED' | 'ANALYZING' | 'COMPLETE' | null
 }

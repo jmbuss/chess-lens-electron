@@ -6,6 +6,7 @@ import { registerChessHandlers } from './chess/register'
 import { registerSyncHandlers } from './sync/register'
 import { registerEngineHandlers } from './engine/register'
 import { registerAnalysisHandlers } from './analysis/register'
+import { registerFavoritesHandlers } from './favorites/register'
 
 export const registerApi = ({
   ipcHandlerRegistry,
@@ -20,4 +21,5 @@ export const registerApi = ({
   registerSyncHandlers(ipcHandlerRegistry, db)
   registerEngineHandlers(ipcHandlerRegistry)
   registerAnalysisHandlers(ipcHandlerRegistry, db)
+  registerFavoritesHandlers(ipcHandlerRegistry, db)
 }
