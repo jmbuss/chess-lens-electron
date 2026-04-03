@@ -1267,3 +1267,33 @@ The priority queue queries (`ORDER BY priority DESC, queued_at ASC LIMIT 1`) hit
 4. **Variation analysis** — the current system analyzes variations (user-added lines). Should the new system auto-populate variation FENs into the position queue, or only mainline? The `pgn:mutated` handler naturally handles this by walking the full tree.
 
 5. **Game-level aggregates in `game_analysis_queue`** — the game machine computes `PlayerStats`, eval curves, and radar incrementally as each position completes (this stays). The `game_analysis_queue` table stores final aggregates for use in the games list (accuracy columns, etc.). Should these aggregates be written only on `COMPLETE`, or also updated periodically during analysis for partially-analyzed games?
+
+---
+
+## Post-implementation follow-ups
+
+Work to schedule **after** the phases above are implemented and stable — not blockers for the refactor itself.
+
+### Sync progress IPC vs. disposed renderer frames
+
+**Observed behavior:** While a sync worker runs in the main process, progress is pushed with `event.sender.send('sync:progress', …)` (e.g. `SyncStartHandler`) and/or `pushToRenderer(mainWindow.webContents, 'sync:progress', …)` (e.g. `SyncCoordinator`). If the user **navigates away**, **reloads**, or **closes** the window that started or owns that `WebContents`, the render frame may be torn down while sync continues. Electron then logs errors such as `Render frame was disposed before WebFrameMain could be accessed`. Progress updates are lost for that UI session; the main process and sync typically keep running.
+
+**Follow-up work:**
+
+- Before any push, guard with `webContents.isDestroyed()` (and consider other Electron lifecycle signals if needed) so disposed targets are skipped instead of throwing/logging every tick.
+- Prefer sending progress to the **current** main window `WebContents` (or a small registry of live windows) rather than holding a stale `event.sender` from the IPC that started sync, if product-wise all windows should see sync state.
+- Optionally dedupe or rate-limit logs when skips happen so long syncs do not flood the console.
+
+**Note:** A persistent **blank white window** is usually a separate renderer issue (failed load, uncaught JS error, dev server). The disposed-frame error is a consequence of targeting a dead frame, not the root cause of a white screen.
+
+### Games list: full refetch on every `sync:progress`
+
+**Observed behavior:** `useSyncGames` (used from `AppSidebar.vue`) calls `queryClient.invalidateQueries({ queryKey: ['chess-games'] })` on **every** `sync:progress` event. That forces a full `chess:getAll` refetch and remaps the entire games list; `GamesTable` re-renders each time. Progress is emitted at least twice per queued month (month start + month end) plus start/end, so a long backfill triggers many full-list refetches and the UI feels sluggish.
+
+**Follow-up work:**
+
+- **Quick win:** Only invalidate `['chess-games']` when sync leaves `in_progress` (e.g. `completed`, `paused`, or terminal error / `idle` after failure). Keep updating sidebar sync status from every progress tick without touching the query cache.
+- **Optional:** Debounce or throttle if mid-sync refresh is still desired (e.g. at most once every N seconds).
+- **Incremental (larger):** Push newly inserted games (or IDs) to the renderer and merge into the TanStack Query cache with `setQueryData` (similar to analysis node updates in `useGameAnalysis`), avoiding repeated `chess:getAll` during sync. Would likely extend `game:synced`-style payloads or add IPC and a `chess:getByIds` (or equivalent) so rows can be built without a full table scan on the renderer.
+
+**Relevant files:** `src/renderer/composables/syncGames/useSyncGames.ts`, `src/renderer/composables/chessGames/useChessGames.ts`, `src/services/sync/worker.ts` (`sendProgress` cadence).

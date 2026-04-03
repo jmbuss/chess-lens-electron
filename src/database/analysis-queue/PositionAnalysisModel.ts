@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import type { BaseModel } from '../models/BaseModel'
 import type { PositionAnalysisRow, PositionAnalysisUpsertRow } from './types'
+import { isoNow } from '../isoTimestamps'
 
 export class PositionAnalysisModel implements BaseModel {
   initializeTables(db: Database.Database): void {
@@ -11,11 +12,11 @@ export class PositionAnalysisModel implements BaseModel {
         config_hash TEXT NOT NULL,
         priority    INTEGER NOT NULL DEFAULT 3,
         status      TEXT NOT NULL DEFAULT 'pending',
-        queued_at   INTEGER NOT NULL DEFAULT (unixepoch()),
+        queued_at   TEXT NOT NULL DEFAULT (datetime('now')),
 
         result_json TEXT,
         depth       INTEGER,
-        analyzed_at INTEGER,
+        analyzed_at TEXT,
 
         UNIQUE (fen, config_hash)
       )
@@ -47,8 +48,8 @@ export class PositionAnalysisModel implements BaseModel {
     priority: number,
   ): void {
     db.prepare(`
-      INSERT INTO position_analysis (fen, config_hash, priority)
-      VALUES (?, ?, ?)
+      INSERT INTO position_analysis (fen, config_hash, priority, queued_at)
+      VALUES (?, ?, ?, ?)
       ON CONFLICT(fen, config_hash) DO UPDATE SET
         priority = CASE
           WHEN excluded.priority < position_analysis.priority
@@ -56,7 +57,7 @@ export class PositionAnalysisModel implements BaseModel {
           THEN excluded.priority
           ELSE position_analysis.priority
         END
-    `).run(fen, configHash, priority)
+    `).run(fen, configHash, priority, isoNow())
   }
 
   static markInProgress(db: Database.Database, id: number): void {
@@ -76,9 +77,9 @@ export class PositionAnalysisModel implements BaseModel {
       SET status = 'complete',
           result_json = ?,
           depth = ?,
-          analyzed_at = unixepoch()
+          analyzed_at = ?
       WHERE id = ?
-    `).run(resultJson, depth, id)
+    `).run(resultJson, depth, isoNow(), id)
   }
 
   static markFailed(db: Database.Database, id: number): void {
@@ -105,8 +106,8 @@ export class PositionAnalysisModel implements BaseModel {
    */
   static bulkUpsert(db: Database.Database, rows: PositionAnalysisUpsertRow[]): void {
     const stmt = db.prepare(`
-      INSERT INTO position_analysis (fen, config_hash, priority)
-      VALUES (?, ?, ?)
+      INSERT INTO position_analysis (fen, config_hash, priority, queued_at)
+      VALUES (?, ?, ?, ?)
       ON CONFLICT(fen, config_hash) DO UPDATE SET
         priority = CASE
           WHEN excluded.priority < position_analysis.priority
@@ -118,7 +119,7 @@ export class PositionAnalysisModel implements BaseModel {
 
     const insertMany = db.transaction((items: PositionAnalysisUpsertRow[]) => {
       for (const row of items) {
-        stmt.run(row.fen, row.config_hash, row.priority)
+        stmt.run(row.fen, row.config_hash, row.priority, isoNow())
       }
     })
 

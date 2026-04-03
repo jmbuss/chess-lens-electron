@@ -35,3 +35,15 @@ export type ChannelRequest<T extends ChannelName> = IpcChannels[T] extends { req
 export type ChannelResponse<T extends ChannelName> = IpcChannels[T] extends { response: infer R }
   ? R
   : never
+
+/**
+ * Channels that declare a `push` shape can be used with pushToRenderer / ipcService.onPush.
+ * A push channel has no request/response — it is main-initiated, renderer-received only.
+ */
+export type PushChannelName = {
+  [K in keyof IpcChannels]: IpcChannels[K] extends { push: any } ? K : never
+}[keyof IpcChannels]
+
+export type PushPayload<K extends PushChannelName> = IpcChannels[K] extends { push: infer P }
+  ? P
+  : never

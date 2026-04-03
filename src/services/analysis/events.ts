@@ -1,5 +1,7 @@
-declare module 'src/events/channels' {
-  export interface EventChannels {
+export {}
+
+declare module '../../events/channels' {
+  interface EventChannels {
     'game:queue:updated': {
       reason: 'new_items' | 'priority_changed'
     }

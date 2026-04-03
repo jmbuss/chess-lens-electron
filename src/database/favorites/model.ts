@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { isoNow } from '../isoTimestamps'
 import type { BaseModel } from '../models/BaseModel'
 
 export class GameFavoritesModel implements BaseModel {
@@ -21,7 +22,10 @@ export class GameFavoritesModel implements BaseModel {
   }
 
   static add(db: Database.Database, gameId: string): void {
-    db.prepare('INSERT OR IGNORE INTO game_favorites (game_id) VALUES (?)').run(gameId)
+    db.prepare('INSERT OR IGNORE INTO game_favorites (game_id, created_at) VALUES (?, ?)').run(
+      gameId,
+      isoNow(),
+    )
   }
 
   static remove(db: Database.Database, gameId: string): boolean {

@@ -5,13 +5,17 @@ import { registerApi } from './api/register'
 import { database } from './database'
 import { ipcHandlerRegistry } from './ipc'
 import { initEngineManager, shutdownEngines } from './services/engine/manager'
+import { eventBus } from './events'
+import { GameAnalysisScheduler } from './services/analysis/GameAnalysisScheduler'
+import { SyncCoordinator } from './services/sync/SyncCoordinator'
+import './events/app'
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
   app.quit()
 }
 
-const createWindow = () => {
+const createWindow = (): BrowserWindow => {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
     width: 1200,
@@ -31,6 +35,8 @@ const createWindow = () => {
   if (!app.isPackaged) {
     mainWindow.webContents.openDevTools()
   }
+
+  return mainWindow
 }
 
 // This method will be called when Electron has finished
@@ -38,9 +44,17 @@ const createWindow = () => {
 // Some APIs can only be used after this event occurs.
 app.on('ready', () => {
   initEngineManager()
-  registerApi({ ipcHandlerRegistry, db: database.getDatabase() })
+  const db = database.getDatabase()
+  registerApi({ ipcHandlerRegistry, db })
 
-  createWindow()
+  new GameAnalysisScheduler(db, eventBus)
+
+  const mainWindow = createWindow()
+
+  new SyncCoordinator(db, eventBus, mainWindow.webContents)
+
+  // Emitted after createWindow so the renderer is alive for progress events
+  eventBus.emit('app:started', undefined)
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common

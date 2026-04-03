@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import type { BaseModel } from '../models/BaseModel'
 import type { GameAnalysisQueueAggregates, GameAnalysisQueueRow } from './types'
+import { isoNow } from '../isoTimestamps'
 
 export class GameAnalysisQueueModel implements BaseModel {
   initializeTables(db: Database.Database): void {
@@ -9,9 +10,9 @@ export class GameAnalysisQueueModel implements BaseModel {
         game_id      TEXT NOT NULL PRIMARY KEY REFERENCES chess_games(id),
         priority     INTEGER NOT NULL DEFAULT 3,
         status       TEXT NOT NULL DEFAULT 'pending',
-        queued_at    INTEGER NOT NULL DEFAULT (unixepoch()),
-        started_at   INTEGER,
-        completed_at INTEGER,
+        queued_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        started_at   TEXT,
+        completed_at TEXT,
 
         accuracy_white   REAL,
         accuracy_black   REAL,
@@ -33,17 +34,17 @@ export class GameAnalysisQueueModel implements BaseModel {
 
   static enqueue(db: Database.Database, gameId: string, priority: number = 3): void {
     db.prepare(`
-      INSERT OR IGNORE INTO game_analysis_queue (game_id, priority)
-      VALUES (?, ?)
-    `).run(gameId, priority)
+      INSERT OR IGNORE INTO game_analysis_queue (game_id, priority, queued_at)
+      VALUES (?, ?, ?)
+    `).run(gameId, priority, isoNow())
   }
 
   static markInProgress(db: Database.Database, gameId: string): void {
     db.prepare(`
       UPDATE game_analysis_queue
-      SET status = 'in_progress', started_at = unixepoch()
+      SET status = 'in_progress', started_at = ?
       WHERE game_id = ?
-    `).run(gameId)
+    `).run(isoNow(), gameId)
   }
 
   static markPending(db: Database.Database, gameId: string): void {
@@ -62,7 +63,7 @@ export class GameAnalysisQueueModel implements BaseModel {
     db.prepare(`
       UPDATE game_analysis_queue
       SET status = 'complete',
-          completed_at = unixepoch(),
+          completed_at = ?,
           accuracy_white = ?,
           accuracy_black = ?,
           white_stats_json = ?,
@@ -70,6 +71,7 @@ export class GameAnalysisQueueModel implements BaseModel {
           eval_curve_json = ?
       WHERE game_id = ?
     `).run(
+      isoNow(),
       aggregates.accuracy_white,
       aggregates.accuracy_black,
       aggregates.white_stats_json,
@@ -82,9 +84,9 @@ export class GameAnalysisQueueModel implements BaseModel {
   static markFailed(db: Database.Database, gameId: string): void {
     db.prepare(`
       UPDATE game_analysis_queue
-      SET status = 'failed', completed_at = unixepoch()
+      SET status = 'failed', completed_at = ?
       WHERE game_id = ?
-    `).run(gameId)
+    `).run(isoNow(), gameId)
   }
 
   static updatePriority(db: Database.Database, gameId: string, priority: number): void {

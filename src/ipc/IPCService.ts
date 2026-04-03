@@ -1,4 +1,12 @@
-import type { IpcRequest, IpcResponse, ChannelName, ChannelRequest, ChannelResponse } from './types'
+import type {
+  IpcRequest,
+  IpcResponse,
+  ChannelName,
+  ChannelRequest,
+  ChannelResponse,
+  PushChannelName,
+  PushPayload,
+} from './types'
 
 /**
  * Callback type for IPC event listeners
@@ -99,12 +107,30 @@ export class IpcService {
       return
     }
 
-    // Get the wrapped callback we stored
     const wrappedCallback = this.callbackMap.get(callback)
     if (wrappedCallback) {
       window.electronAPI.off(channel, wrappedCallback)
       this.callbackMap.delete(callback)
     }
+  }
+
+  /**
+   * Subscribe to a typed push channel (main → renderer, no request/response).
+   * Channel must be declared with a `push` shape in IpcChannels.
+   */
+  onPush<K extends PushChannelName>(channel: K, callback: IpcEventCallback<PushPayload<K>>): void {
+    this.on(channel as string, callback)
+  }
+
+  /**
+   * Unsubscribe from a typed push channel.
+   * Pass the same callback function used in `onPush()`.
+   */
+  offPush<K extends PushChannelName>(
+    channel: K,
+    callback: IpcEventCallback<PushPayload<K>>,
+  ): void {
+    this.off(channel as string, callback)
   }
 }
 

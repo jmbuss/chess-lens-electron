@@ -10,10 +10,13 @@
 import type Database from 'better-sqlite3'
 import { SyncModel, type SyncPlatform, type CreateQueueItemParams } from '../../database/sync'
 import { ChessGameModel } from '../../database/chess'
+import { GamePositionsModel } from '../../database/game-positions'
 import { fetchArchivesList } from '../chesscom'
 import { findOpening } from '@chess-openings/eco.json'
 import { getOpeningBookSingleton } from '../../utils/chess/openingBook'
 import { parseGameTree, getMoveList, collectMainlineFens } from '../../utils/chess/GameTree'
+import { eventBus } from '../../events'
+import './events'
 import type {
   SyncProgress,
   SyncProgressCallback,
@@ -353,11 +356,14 @@ export class SyncWorker {
             let moveCount: number | undefined
             let eco: string | undefined
             let name: string | undefined
+            const positions: { fen: string; ply: number }[] = []
             try {
               const { root } = parseGameTree(game.pgn)
               moveCount = Math.ceil(getMoveList(root).length / 2)
 
               const fens = collectMainlineFens(root)
+              positions.push(...fens)
+
               for (let i = fens.length - 1; i >= 0; i--) {
                 const opening = findOpening(book, fens[i].fen, positionBook)
                 if (opening) {
@@ -367,17 +373,43 @@ export class SyncWorker {
                 }
               }
             } catch {
-              // Leave moveCount and opening undefined if parsing fails
+              // Leave moveCount, opening, and positions empty if parsing fails
             }
 
             return {
               ...game,
               moveCount,
               opening: eco || name ? { eco, name } : undefined,
+              positions,
             }
           })
 
           result.gamesAdded = ChessGameModel.createBatch(this.db, enrichedGames)
+
+          for (const game of enrichedGames) {
+            if (game.positions.length > 0) {
+              GamePositionsModel.bulkInsert(
+                this.db,
+                game.positions.map(p => ({ game_id: game.id, fen: p.fen, ply: p.ply })),
+              )
+            }
+          }
+
+          for (const game of enrichedGames) {
+            const startTime = game.startTime
+            const playedAt =
+              startTime == null
+                ? new Date().toISOString()
+                : typeof startTime === 'string'
+                  ? startTime
+                  : startTime.toISOString()
+
+            eventBus.emit('game:synced', {
+              gameId: game.id,
+              playedAt,
+              platform: this.platform,
+            })
+          }
         }
       }
 

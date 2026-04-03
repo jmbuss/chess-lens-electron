@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { isoNow } from '../isoTimestamps'
 import type { BaseModel } from '../models/BaseModel'
 import type { PlatformAccountData, PlatformType } from './types'
 
@@ -73,12 +74,19 @@ export class PlatformAccountModel implements BaseModel {
     db: Database.Database,
     accountData: Omit<PlatformAccountData, 'id' | 'createdAt' | 'updatedAt'>
   ): PlatformAccountData {
+    const now = isoNow()
     const stmt = db.prepare(`
-      INSERT INTO platform_accounts (userId, platform, platformUsername)
-      VALUES (?, ?, ?)
+      INSERT INTO platform_accounts (userId, platform, platformUsername, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?)
     `)
 
-    const result = stmt.run(accountData.userId, accountData.platform, accountData.platformUsername)
+    const result = stmt.run(
+      accountData.userId,
+      accountData.platform,
+      accountData.platformUsername,
+      now,
+      now,
+    )
 
     return this.findById(db, result.lastInsertRowid as number)!
   }
@@ -137,7 +145,8 @@ export class PlatformAccountModel implements BaseModel {
       return this.findById(db, id)
     }
 
-    fields.push("updatedAt = datetime('now')")
+    fields.push('updatedAt = ?')
+    values.push(isoNow())
     values.push(id)
 
     const stmt = db.prepare(`

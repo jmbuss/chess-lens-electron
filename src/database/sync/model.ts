@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { isoNow } from '../isoTimestamps'
 import type { BaseModel } from '../models/BaseModel'
 import type {
   SyncMetadata,
@@ -119,7 +120,7 @@ export class SyncModel implements BaseModel {
           row.last_attempt_at != null ? new Date(row.last_attempt_at).toISOString() : null,
           row.completed_at != null ? new Date(row.completed_at).toISOString() : null,
           row.error_message,
-          row.created_at != null ? new Date(row.created_at).toISOString() : new Date().toISOString()
+          row.created_at != null ? new Date(row.created_at).toISOString() : isoNow()
         )
       }
       db.exec('DROP TABLE sync_queue')
@@ -194,7 +195,7 @@ export class SyncModel implements BaseModel {
       return existing
     }
 
-    const now = new Date().toISOString()
+    const now = isoNow()
     const stmt = db.prepare(`
       INSERT INTO sync_metadata (username, platform, sync_status, created_at, updated_at)
       VALUES (?, ?, 'idle', ?, ?)
@@ -232,7 +233,7 @@ export class SyncModel implements BaseModel {
     params: UpdateSyncMetadataParams
   ): void {
     const updates: string[] = ['updated_at = ?']
-    const values: any[] = [new Date().toISOString()]
+    const values: any[] = [isoNow()]
 
     if (params.lastSyncedTimestamp !== undefined) {
       updates.push('last_synced_timestamp = ?')
@@ -277,7 +278,7 @@ export class SyncModel implements BaseModel {
    * Add a queue item (or update if exists)
    */
   static addQueueItem(db: Database.Database, params: CreateQueueItemParams): SyncQueueItem {
-    const now = new Date().toISOString()
+    const now = isoNow()
     const stmt = db.prepare(`
       INSERT INTO sync_queue (username, platform, month, priority, archive_url, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -307,7 +308,7 @@ export class SyncModel implements BaseModel {
     monthsToReset: string[] = []
   ): number {
     // TODO: monthsToReset doesn't actually work as intended, it needs to update the timestamps
-    const now = new Date().toISOString()
+    const now = isoNow()
     const resetMonthsSet = new Set(monthsToReset)
 
     const stmtNormal = db.prepare(`
@@ -443,7 +444,7 @@ export class SyncModel implements BaseModel {
     status: QueueItemStatus,
     errorMessage?: string
   ): void {
-    const now = new Date().toISOString()
+    const now = isoNow()
     let completedAt: string | null = null
 
     if (status === 'completed') {

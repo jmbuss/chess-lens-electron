@@ -1,12 +1,13 @@
 export type AnalysisQueueStatus = 'pending' | 'in_progress' | 'complete' | 'failed'
 
+/** Date fields are ISO8601 strings (TEXT in SQLite), same as chess_games / sync tables. */
 export interface GameAnalysisQueueRow {
   game_id: string
   priority: number
   status: AnalysisQueueStatus
-  queued_at: number
-  started_at: number | null
-  completed_at: number | null
+  queued_at: string
+  started_at: string | null
+  completed_at: string | null
   accuracy_white: number | null
   accuracy_black: number | null
   white_stats_json: string | null
@@ -28,10 +29,10 @@ export interface PositionAnalysisRow {
   config_hash: string
   priority: number
   status: AnalysisQueueStatus
-  queued_at: number
+  queued_at: string
   result_json: string | null
   depth: number | null
-  analyzed_at: number | null
+  analyzed_at: string | null
 }
 
 export interface PositionAnalysisUpsertRow {

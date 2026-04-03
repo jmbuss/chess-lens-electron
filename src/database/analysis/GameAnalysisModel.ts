@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { isoNow } from '../isoTimestamps'
 import type { BaseModel } from '../models/BaseModel'
 import type { GameAnalysisData } from './types'
 
@@ -26,13 +27,14 @@ export class GameAnalysisModel implements BaseModel {
    * Persist (insert or replace) the full analysis state for a game.
    */
   static save(db: Database.Database, data: GameAnalysisData): void {
+    const now = isoNow()
     db.prepare(`
-      INSERT INTO game_analyses (game_id, state)
-      VALUES (?, ?)
+      INSERT INTO game_analyses (game_id, state, created_at, updated_at)
+      VALUES (?, ?, ?, ?)
       ON CONFLICT(game_id) DO UPDATE SET
         state      = excluded.state,
-        updated_at = datetime('now')
-    `).run(data.gameId, JSON.stringify(data))
+        updated_at = ?
+    `).run(data.gameId, JSON.stringify(data), now, now, now)
   }
 
   static delete(db: Database.Database, gameId: string): boolean {

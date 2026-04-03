@@ -78,6 +78,9 @@ declare module '../../ipc/handlers' {
       request: SyncRequest
       response: number
     }
+    'sync:progress': {
+      push: SyncProgress
+    }
   }
 }
 

@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { isoNow } from '../isoTimestamps'
 import type { BaseModel } from '../models/BaseModel'
 import type { UserData } from './types'
 
@@ -62,12 +63,13 @@ export class UserModel implements BaseModel {
     db: Database.Database,
     userData: Omit<UserData, 'id' | 'createdAt' | 'updatedAt'>
   ): UserData {
+    const now = isoNow()
     const stmt = db.prepare(`
-      INSERT INTO users (firstName, lastName, email)
-      VALUES (?, ?, ?)
+      INSERT INTO users (firstName, lastName, email, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?)
     `)
 
-    const result = stmt.run(userData.firstName, userData.lastName, userData.email)
+    const result = stmt.run(userData.firstName, userData.lastName, userData.email, now, now)
     return this.findById(db, result.lastInsertRowid as number)!
   }
 
@@ -115,7 +117,8 @@ export class UserModel implements BaseModel {
       return this.findById(db, id)
     }
 
-    fields.push("updatedAt = datetime('now')")
+    fields.push('updatedAt = ?')
+    values.push(isoNow())
     values.push(id)
 
     const stmt = db.prepare(`
