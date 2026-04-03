@@ -10,6 +10,8 @@ import { AnalysisService } from 'src/services/engine/analysis/AnalysisService'
 import { HumanMoveService } from 'src/services/engine/analysis/HumanMoveService'
 import type { HumanMovePrediction } from 'src/services/engine/types'
 import { GameAnalysisModel } from 'src/database/analysis/GameAnalysisModel'
+import { PositionAnalysisModel } from 'src/database/analysis-queue'
+import { GameAnalysisQueueModel } from 'src/database/analysis-queue'
 import type {
   AnalysisPreset,
   AnalysisModeConfig,
@@ -18,6 +20,7 @@ import type {
   GameFSMState,
 } from 'src/database/analysis/types'
 import { ANALYSIS_PRESETS } from 'src/database/analysis/types'
+import type { EventBus } from '../../events'
 
 import {
   gameMachine,
@@ -26,11 +29,12 @@ import {
   buildEvalCurveFromMainLine,
   buildMaiaFloorEvalCurve,
   buildMaiaCeilingEvalCurve,
+  computePlayerStats,
   type GameContext,
   type GameInput,
 } from './machines/gameMachine'
 import { positionMachine } from './machines/positionMachine'
-import type { EngineResult } from './machines/positionMachine'
+import type { EngineResult, PositionOutput } from './machines/positionMachine'
 import { parseGameTree, STARTING_FEN } from 'src/utils/chess/GameTree'
 import type { GameChildNode, GameNode } from 'src/utils/chess/types'
 
@@ -38,6 +42,8 @@ import { PhaseClassificationService } from './PhaseClassificationService'
 import { PositionalFeaturesService } from './PositionalFeaturesService'
 import { EvalMaiaMovesService } from './EvalMaiaMovesService'
 import { MoveClassificationService } from './MoveClassificationService'
+import { buildConfigHash } from './PositionQueueManager'
+import './events'
 
 const SCHEMA_VERSION = 5
 
@@ -108,6 +114,7 @@ function buildConfig(preset: AnalysisPreset, userRating?: number): AnalysisModeC
 
 export class GameCoordinator {
   private gameInput: GameInput | null = null
+  private configHash: string
 
   // Engine references held for the lifetime of this coordinator so that
   // stopEngines can drain all three in STOP_AND_WAIT.
@@ -123,7 +130,11 @@ export class GameCoordinator {
     private pgn: string,
     private backgroundPreset: AnalysisPreset,
     private userRating: number = 1500,
-  ) {}
+    private bus?: EventBus,
+  ) {
+    const backgroundConfig = buildConfig(backgroundPreset, userRating)
+    this.configHash = buildConfigHash(backgroundConfig)
+  }
 
   /**
    * Load-or-create the analysis record and build the GameInput. Must be called
@@ -132,13 +143,14 @@ export class GameCoordinator {
    * On resume the machine starts at IDLE with currentNodeId = root. IDLE's
    * BACKGROUND_PROCESSING guard finds the first UNANALYZED node via DFS, so
    * no cursor-scanning is needed here.
+   *
+   * After loading/creating the tree, hydrates nodes from the position_analysis
+   * cache so previously-analyzed positions start as NAG_COMPLETE without
+   * requiring engine work.
    */
   initialize(): void {
     const pgnHash = hashPgn(this.pgn)
     const existing = GameAnalysisModel.findByGameId(this.db, this.gameId)
-    // Background sweep always uses fast (time-bounded) so all positions
-    // receive a quick first-pass result. The focus config (study) is applied
-    // only when the user navigates to an already-analyzed position.
     const backgroundConfig = buildConfig('fast', this.userRating)
     const focusConfig = buildConfig('fast', this.userRating)
 
@@ -162,6 +174,8 @@ export class GameCoordinator {
       }
       GameAnalysisModel.save(this.db, data)
     }
+
+    this.hydrateTreeFromCache(data.tree)
 
     this.gameInput = {
       data,
@@ -209,8 +223,18 @@ export class GameCoordinator {
     await this.featuresService.initialize()
     const featuresService = this.featuresService
 
+    const configHash = this.configHash
+    const db = this.db
+
     const concretePositionMachine = positionMachine.provide({
       actors: {
+        loadPositionCache: fromPromise(async ({ input: actorInput }) => {
+          const row = PositionAnalysisModel.findByFen(db, actorInput.fen, configHash)
+          if (row && row.status === 'complete' && row.result_json) {
+            return JSON.parse(row.result_json) as PositionOutput
+          }
+          return null
+        }),
         analyzePosition: fromPromise(async ({ input: actorInput }) => {
           const result = await analysisService.analyzePosition(actorInput.fen, {
             depth: actorInput.config.depth,
@@ -309,8 +333,12 @@ export class GameCoordinator {
     // Pre-populate with nodes already analyzed in previous runs so they are
     // not re-pushed when the actor starts on a resumed or COMPLETE game.
     const pushedNodeIds = new Set<number>()
+    const writtenFens = new Set<string>()
     const prepopulatePushed = (node: AnalysisNode) => {
-      if (node.fsmState === 'NAG_COMPLETE') pushedNodeIds.add(node.id)
+      if (node.fsmState === 'NAG_COMPLETE') {
+        pushedNodeIds.add(node.id)
+        writtenFens.add(node.fen)
+      }
       for (const child of node.children) prepopulatePushed(child)
     }
     prepopulatePushed(input.data.tree)
@@ -323,14 +351,15 @@ export class GameCoordinator {
     actor.subscribe((snapshot) => {
       const { context } = snapshot
 
-      // Push any newly completed nodes (mainline and variations).
-      this.pushNewlyCompletedNodes(context, pushedNodeIds)
+      // Push any newly completed nodes and dual-write to position_analysis.
+      this.pushNewlyCompletedNodes(context, pushedNodeIds, writtenFens)
 
       // Push COMPLETE whenever gameFsmState transitions into it. Using
       // prevGameFsmState prevents duplicate pushes on multiple ticks while
       // already in COMPLETE, but allows re-entry after a new variation.
       if (context.gameFsmState === 'COMPLETE' && prevGameFsmState !== 'COMPLETE') {
         this.saveAndPushGameState(context, 'COMPLETE')
+        this.writeGameAggregates(context)
       }
 
       prevGameFsmState = context.gameFsmState
@@ -361,6 +390,14 @@ export class GameCoordinator {
    */
   insertNode(parentId: number, node: AnalysisNode, nextId: number): void {
     this.actor?.send({ type: 'insertNode', parentId, node, nextId })
+  }
+
+  /**
+   * Sent by the orchestrator when position priorities change. The machine
+   * enters STOP_AND_WAIT so IDLE can re-evaluate which position to run next.
+   */
+  sendPriorityChanged(): void {
+    this.actor?.send({ type: 'priorityChanged' })
   }
 
   /**
@@ -427,20 +464,143 @@ export class GameCoordinator {
 
   /**
    * Walk the entire tree (DFS) and push any NAG_COMPLETE nodes that have not
-   * been pushed yet. Using a Set of node IDs rather than a linear index means
-   * variation nodes are handled identically to mainline nodes.
+   * been pushed yet. Also dual-writes each newly completed position to
+   * position_analysis for cross-game cache sharing.
    */
   private pushNewlyCompletedNodes(
     context: GameContext,
     pushedNodeIds: Set<number>,
+    writtenFens: Set<string>,
   ): void {
     const walk = (node: AnalysisNode) => {
       if (node.fsmState === 'NAG_COMPLETE' && !pushedNodeIds.has(node.id)) {
         pushedNodeIds.add(node.id)
         this.saveAndPushNode(context, node)
+
+        if (!writtenFens.has(node.fen)) {
+          writtenFens.add(node.fen)
+          this.writePositionToCache(node)
+        }
       }
       for (const child of node.children) walk(child)
     }
     walk(context.tree)
+  }
+
+  /**
+   * Write a completed position's result to the normalized position_analysis
+   * table. Reconstructs a PositionOutput from the AnalysisNode so the cache
+   * can be read back by the positionMachine's CACHE_PROBE state.
+   */
+  private writePositionToCache(node: AnalysisNode): void {
+    const row = PositionAnalysisModel.findByFen(this.db, node.fen, this.configHash)
+    if (!row) return
+    if (row.status === 'complete') return
+
+    const output: PositionOutput = {
+      engineResult: node.engineResult ?? null,
+      maiaFloorResult: node.maiaFloorResult ?? null,
+      maiaCeilingResult: node.maiaCeilingResult ?? null,
+      augmentedMaiaFloor: node.augmentedMaiaFloor ?? null,
+      augmentedMaiaCeiling: node.augmentedMaiaCeiling ?? null,
+      nag: node.nag!,
+      isBestMove: node.isBestMove!,
+      moveAccuracy: null,
+      criticalityScore: node.criticalityScore ?? null,
+      floorMistakeProb: node.floorMistakeProb ?? null,
+      ceilingMistakeProb: node.ceilingMistakeProb ?? null,
+      phaseResult: node.phaseScore != null
+        ? {
+            phase: node.endgameScore != null && node.endgameScore > 0.5
+              ? 'endgame'
+              : node.openingScore != null && node.openingScore > 0.5
+                ? 'opening'
+                : 'middlegame',
+            phaseScore: node.phaseScore,
+            openingScore: node.openingScore!,
+            middlegameScore: node.middlegameScore!,
+            endgameScore: node.endgameScore!,
+            ecoMatch: node.ecoCode ? { eco: node.ecoCode, name: '' } as any : null,
+          }
+        : null,
+      positionalFeatures: node.positionalFeatures ?? null,
+      maiaFloorBestEval: node.maiaFloorBestEval ?? null,
+      maiaCeilingBestEval: node.maiaCeilingBestEval ?? null,
+    }
+
+    PositionAnalysisModel.markComplete(
+      this.db,
+      row.id,
+      JSON.stringify(output),
+      node.engineResult?.depth ?? 0,
+    )
+  }
+
+  /**
+   * On game COMPLETE: write game-level aggregates to game_analysis_queue
+   * and emit game:analysis:complete. Aggregates are computed incrementally
+   * by the gameMachine and flushed here once.
+   */
+  private writeGameAggregates(context: GameContext): void {
+    const whiteStats = computePlayerStats(context.tree, 'w')
+    const blackStats = computePlayerStats(context.tree, 'b')
+    const evalCurve = buildEvalCurveFromMainLine(context.tree)
+
+    GameAnalysisQueueModel.markComplete(this.db, this.gameId, {
+      accuracy_white: whiteStats.accuracy ?? 0,
+      accuracy_black: blackStats.accuracy ?? 0,
+      white_stats_json: JSON.stringify(whiteStats),
+      black_stats_json: JSON.stringify(blackStats),
+      eval_curve_json: JSON.stringify(evalCurve),
+    })
+
+    this.bus?.emit('game:analysis:complete', { gameId: this.gameId })
+  }
+
+  /**
+   * Walk the tree (DFS) and apply cached position results from
+   * position_analysis. Nodes with a matching complete row are set to
+   * NAG_COMPLETE without engine work. Called during initialize() before
+   * the machine starts.
+   */
+  private hydrateTreeFromCache(tree: AnalysisNode): void {
+    const walk = (node: AnalysisNode) => {
+      if (node.fsmState === 'UNANALYZED') {
+        const row = PositionAnalysisModel.findByFen(this.db, node.fen, this.configHash)
+        if (row && row.status === 'complete' && row.result_json) {
+          try {
+            const cached = JSON.parse(row.result_json) as PositionOutput
+            Object.assign(node, {
+              fsmState: 'NAG_COMPLETE' as const,
+              engineResult: cached.engineResult ?? undefined,
+              criticalityScore: cached.criticalityScore ?? undefined,
+              nag: cached.nag,
+              isBestMove: cached.isBestMove,
+              maiaFloorResult: cached.maiaFloorResult ?? undefined,
+              maiaCeilingResult: cached.maiaCeilingResult ?? undefined,
+              augmentedMaiaFloor: cached.augmentedMaiaFloor ?? undefined,
+              augmentedMaiaCeiling: cached.augmentedMaiaCeiling ?? undefined,
+              floorMistakeProb: cached.floorMistakeProb ?? undefined,
+              ceilingMistakeProb: cached.ceilingMistakeProb ?? undefined,
+              phaseScore: cached.phaseResult?.phaseScore,
+              openingScore: cached.phaseResult?.openingScore,
+              middlegameScore: cached.phaseResult?.middlegameScore,
+              endgameScore: cached.phaseResult?.endgameScore,
+              ecoCode: cached.phaseResult?.ecoMatch?.eco ?? undefined,
+              isBookMove: cached.phaseResult != null
+                ? cached.phaseResult.ecoMatch != null
+                : undefined,
+              positionalFeatures: cached.positionalFeatures ?? undefined,
+              maiaFloorBestEval: cached.maiaFloorBestEval,
+              maiaCeilingBestEval: cached.maiaCeilingBestEval,
+            })
+          } catch {
+            // Corrupt cache row — leave node as UNANALYZED
+          }
+        }
+      }
+      for (const child of node.children) walk(child)
+    }
+    walk(tree)
   }
 }

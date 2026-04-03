@@ -139,6 +139,12 @@ export interface ComputePositionalDataResult {
   features: PositionalFeatures
 }
 
+// ==================== Cache Probe ====================
+
+export interface CacheProbeInput {
+  fen: string
+}
+
 // ==================== Machine ====================
 
 export const positionMachine = setup({
@@ -148,6 +154,9 @@ export const positionMachine = setup({
     output: {} as PositionOutput,
   },
   actors: {
+    loadPositionCache: fromPromise<PositionOutput | null, CacheProbeInput>(async () => {
+      throw new Error('loadPositionCache actor not provided — use .provide()')
+    }),
     analyzePosition: fromPromise<EngineResult, AnalyzePositionInput>(async () => {
       throw new Error('analyzePosition actor not provided — use .provide()')
     }),
@@ -164,9 +173,12 @@ export const positionMachine = setup({
       throw new Error('computePositionalData actor not provided — use .provide()')
     }),
   },
+  guards: {
+    isCacheHit: (_, params: { result: PositionOutput | null }) => params.result != null,
+  },
 }).createMachine({
   id: 'position',
-  initial: 'GATHERING',
+  initial: 'CACHE_PROBE',
   context: ({ input }) => ({
     ...input,
     engineResult: null,
@@ -201,6 +213,47 @@ export const positionMachine = setup({
     maiaCeilingBestEval: context.augmentedMaiaCeiling?.predictions[0]?.stockfishEval ?? null,
   }),
   states: {
+    /**
+     * Step 0: Check position_analysis cache before running engines.
+     * The cache loader is injected by GameCoordinator so the machine
+     * has no direct dependency on SQLite.
+     */
+    CACHE_PROBE: {
+      invoke: {
+        src: 'loadPositionCache',
+        input: ({ context }): CacheProbeInput => ({ fen: context.fen }),
+        onDone: [
+          {
+            guard: {
+              type: 'isCacheHit',
+              params: ({ event }) => ({ result: event.output }),
+            },
+            target: 'COMPLETE',
+            actions: assign(({ event }) => {
+              const cached = event.output as PositionOutput
+              return {
+                engineResult: cached.engineResult,
+                maiaFloorResult: cached.maiaFloorResult,
+                maiaCeilingResult: cached.maiaCeilingResult,
+                phaseResult: cached.phaseResult,
+                positionalFeatures: cached.positionalFeatures,
+                augmentedMaiaFloor: cached.augmentedMaiaFloor,
+                augmentedMaiaCeiling: cached.augmentedMaiaCeiling,
+                nag: cached.nag,
+                isBestMove: cached.isBestMove,
+                moveAccuracy: cached.moveAccuracy,
+                criticalityScore: cached.criticalityScore,
+                floorMistakeProb: cached.floorMistakeProb,
+                ceilingMistakeProb: cached.ceilingMistakeProb,
+              }
+            }),
+          },
+          { target: 'GATHERING' },
+        ],
+        onError: 'GATHERING',
+      },
+    },
+
     /**
      * Step 1: Parallel data gathering.
      * Stockfish finds top N lines while Maia predicts human moves.

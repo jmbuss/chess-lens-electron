@@ -102,6 +102,27 @@ export class PositionAnalysisModel implements BaseModel {
   }
 
   /**
+   * Bump all pending positions belonging to a game up to the given priority,
+   * but only if their current priority is numerically higher (lower urgency).
+   * Uses the game_positions join to scope by game.
+   */
+  static updatePriorityForGame(
+    db: Database.Database,
+    gameId: string,
+    configHash: string,
+    priority: number,
+  ): void {
+    db.prepare(`
+      UPDATE position_analysis
+      SET priority = ?
+      WHERE fen IN (SELECT fen FROM game_positions WHERE game_id = ?)
+        AND config_hash = ?
+        AND status = 'pending'
+        AND priority > ?
+    `).run(priority, gameId, configHash, priority)
+  }
+
+  /**
    * Bulk upsert a batch of positions within a single transaction.
    */
   static bulkUpsert(db: Database.Database, rows: PositionAnalysisUpsertRow[]): void {

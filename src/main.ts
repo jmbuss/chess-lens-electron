@@ -7,6 +7,8 @@ import { ipcHandlerRegistry } from './ipc'
 import { initEngineManager, shutdownEngines } from './services/engine/manager'
 import { eventBus } from './events'
 import { GameAnalysisScheduler } from './services/analysis/GameAnalysisScheduler'
+import { PositionQueueManager } from './services/analysis/PositionQueueManager'
+import { AnalysisOrchestrator } from './services/analysis/AnalysisOrchestrator'
 import { SyncCoordinator } from './services/sync/SyncCoordinator'
 import './events/app'
 
@@ -45,12 +47,14 @@ const createWindow = (): BrowserWindow => {
 app.on('ready', () => {
   initEngineManager()
   const db = database.getDatabase()
-  registerApi({ ipcHandlerRegistry, db })
+  registerApi({ ipcHandlerRegistry, db, bus: eventBus })
 
   new GameAnalysisScheduler(db, eventBus)
+  const positionQueueManager = new PositionQueueManager(db, eventBus)
 
   const mainWindow = createWindow()
 
+  new AnalysisOrchestrator(db, eventBus, positionQueueManager, mainWindow.webContents)
   new SyncCoordinator(db, eventBus, mainWindow.webContents)
 
   // Emitted after createWindow so the renderer is alive for progress events

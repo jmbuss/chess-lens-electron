@@ -303,6 +303,12 @@ export type GameEvent =
    * so the tree is updated before the guards evaluate.
    */
   | { type: 'insertNode'; parentId: number; node: AnalysisNode; nextId: number }
+  /**
+   * Sent by the orchestrator when position:queue:updated fires with a priority
+   * change. Triggers STOP_AND_WAIT so the machine re-evaluates which position
+   * should run next from IDLE.
+   */
+  | { type: 'priorityChanged' }
 
 // ==================== Machine ====================
 
@@ -374,6 +380,9 @@ export const gameMachine = setup({
             currentNodeId: event.node.id,
             nextId: event.nextId,
           })),
+        },
+        priorityChanged: {
+          target: '.STOP_AND_WAIT',
         },
       },
 
@@ -520,6 +529,8 @@ export const gameMachine = setup({
                 nextId: event.nextId,
               })),
             },
+            // Absorb while already draining — IDLE will re-evaluate priorities.
+            priorityChanged: {},
           },
         },
       },

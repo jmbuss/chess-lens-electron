@@ -170,6 +170,10 @@ export class ChessGameModel implements BaseModel {
     return insertMany(games)
   }
 
+  static updatePgn(db: Database.Database, id: string, pgn: string): void {
+    db.prepare('UPDATE chess_games SET pgn = ? WHERE id = ?').run(pgn, id)
+  }
+
   static delete(db: Database.Database, id: string): boolean {
     return db.prepare('DELETE FROM chess_games WHERE id = ?').run(id).changes > 0
   }
