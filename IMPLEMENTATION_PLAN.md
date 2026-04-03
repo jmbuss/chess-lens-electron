@@ -583,6 +583,195 @@ const scheduler = new GameAnalysisScheduler(database.getDatabase(), eventBus)
 
 ---
 
+## Phase 3b — SyncCoordinator Bootstrap (Early Validation)
+
+**Goal:** Wire `SyncCoordinator` to `app:started` so that syncing fires automatically on launch. This phase is intentionally minimal — it proves the event bus is working and that real syncs flow through it, without depending on any of the analysis orchestration phases (4–7).
+
+**Scope:** One new service, typed push-channel infrastructure for `IpcChannels`, and small additions to `src/main.ts`.
+
+### Design
+
+`SyncCoordinator` is a thin wrapper around the existing `syncWorkerManager`. On `app:started` it queries all known platform accounts and triggers a sync for each, reusing the same `buildQueue` + `start` path that `SyncStartHandler` uses today. Progress is forwarded to the main window via a **typed push helper** so the UI stays responsive.
+
+**Guard against duplicate syncs:** The existing `syncWorkerManager.isRunning(username, platform)` check inside `SyncStartHandler` is mirrored here — if a worker is already running (e.g. user manually triggered sync before `app:started` fired), the coordinator skips it.
+
+**`app:started` timing:** The event is emitted after `createWindow()` in `main.ts` so that the renderer window is alive and can receive progress IPC events.
+
+### Typed push channels
+
+`sync:progress` is currently a raw, untyped push from main → renderer (`event.sender.send('sync:progress', progress)`). This phase introduces a small typed wrapper so that push channels get the same module-augmentation type safety as request/response channels.
+
+#### `src/ipc/types.ts` additions
+
+```typescript
+// Add alongside existing ChannelName / ChannelRequest / ChannelResponse helpers
+
+/**
+ * Channels that declare a `push` shape can be used with pushToRenderer / ipcService.onPush.
+ * A push channel has no request/response — it is main-initiated, renderer-received only.
+ */
+export type PushChannelName = {
+  [K in keyof IpcChannels]: IpcChannels[K] extends { push: any } ? K : never
+}[keyof IpcChannels]
+
+export type PushPayload<K extends PushChannelName> = IpcChannels[K]['push']
+```
+
+#### `src/ipc/push.ts` (new file)
+
+```typescript
+import type { WebContents } from 'electron'
+import type { PushChannelName, PushPayload } from './types'
+
+/**
+ * Type-safe main-process push to a renderer WebContents.
+ * Channel must be declared with a `push` shape in IpcChannels.
+ */
+export function pushToRenderer<K extends PushChannelName>(
+  webContents: WebContents,
+  channel: K,
+  payload: PushPayload<K>,
+): void {
+  webContents.send(channel as string, payload)
+}
+```
+
+#### `IpcService` additions (renderer-side)
+
+Add `onPush` / `offPush` methods to `IpcService` that accept only declared push channels and infer the payload type:
+
+```typescript
+onPush<K extends PushChannelName>(channel: K, callback: IpcEventCallback<PushPayload<K>>): void {
+  // same body as existing `on` — wraps and stores the callback
+}
+
+offPush<K extends PushChannelName>(channel: K, callback: IpcEventCallback<PushPayload<K>>): void {
+  // same body as existing `off`
+}
+```
+
+The existing untyped `on` / `off` methods are kept for backward compatibility during migration.
+
+#### `sync:progress` push declaration
+
+Add a `push` key to the `sync:progress` channel in `src/api/sync/handlers.ts`. Note that `sync:progress` is not currently declared in `IpcChannels` at all — this phase adds it:
+
+```typescript
+// src/api/sync/handlers.ts — augmentation block
+declare module '../../ipc/handlers' {
+  export interface IpcChannels {
+    'sync:start': { request: SyncRequest; response: SyncStatusResponse }
+    // ... existing channels ...
+    'sync:progress': {
+      push: SyncProgress   // push-only — no request/response
+    }
+  }
+}
+```
+
+### Files
+
+```
+src/ipc/
+  push.ts                    — new pushToRenderer helper
+  types.ts                   — PushChannelName + PushPayload additions
+  IPCService.ts              — onPush / offPush additions
+src/api/sync/handlers.ts     — add sync:progress to IpcChannels augmentation
+src/services/sync/
+  SyncCoordinator.ts         — new service
+```
+
+### `SyncCoordinator.ts`
+
+```typescript
+import type Database from 'better-sqlite3'
+import type { WebContents } from 'electron'
+import type { EventBus } from '../../events'
+import { syncWorkerManager } from './workerManager'
+import { PlatformAccountModel } from '../../database/sync/PlatformAccountModel'
+import type { SyncPlatform } from './types'
+import { pushToRenderer } from '../../ipc/push'
+
+export class SyncCoordinator {
+  constructor(
+    private db: Database.Database,
+    private bus: EventBus,
+    private webContents: WebContents,
+  ) {
+    this.bus.on('app:started', () => void this.runInitialSync())
+  }
+
+  private async runInitialSync(): Promise<void> {
+    const accounts = PlatformAccountModel.findAll(this.db)
+    for (const account of accounts) {
+      const { platformUsername: username, platform } = account
+
+      if (syncWorkerManager.isRunning(username, platform as SyncPlatform)) continue
+
+      const worker = syncWorkerManager.getOrCreate(this.db, username, platform as SyncPlatform)
+      const isIncremental = account.lastSyncedMonth !== null
+
+      await worker.buildQueue(isIncremental)
+      await worker.start((progress) => {
+        pushToRenderer(this.webContents, 'sync:progress', progress)
+      })
+    }
+  }
+}
+```
+
+### Bootstrap
+
+`createWindow()` is updated to return the `BrowserWindow` so its `webContents` can be passed to the coordinator:
+
+```typescript
+import { eventBus } from './events'
+import { SyncCoordinator } from './services/sync/SyncCoordinator'
+
+app.on('ready', () => {
+  initEngineManager()
+  const db = database.getDatabase()
+  registerApi({ ipcHandlerRegistry, db })
+
+  const mainWindow = createWindow()  // createWindow() now returns BrowserWindow
+
+  new SyncCoordinator(db, eventBus, mainWindow.webContents)
+
+  // Emitted after createWindow so the renderer is alive for progress events
+  eventBus.emit('app:started', undefined)
+})
+```
+
+### Renderer migration
+
+`useSyncGames` switches from `ipcService.on('sync:progress', ...)` to the new typed method:
+
+```typescript
+// before
+ipcService.on('sync:progress', handleProgress)
+ipcService.off('sync:progress', handleProgress)
+
+// after — handleProgress payload is now inferred as SyncProgress
+ipcService.onPush('sync:progress', handleProgress)
+ipcService.offPush('sync:progress', handleProgress)
+```
+
+### What this validates
+
+- `EventBus` is instantiated and routes events correctly (Phase 1 smoke test).
+- `app:started` fires and triggers a real sync via existing sync infrastructure.
+- Progress events reach the renderer — the home screen sync indicator should show activity on startup.
+- IPC-driven sync (`sync:start`) still works in parallel; the coordinator guard prevents double-running the same account.
+- Typed push infrastructure is in place for all future main → renderer push channels.
+
+### What this does NOT do
+
+- Does not emit `game:synced` from `SyncWorker` — that's Phase 3 / Phase 7 work. The scheduler (`GameAnalysisScheduler`) is not wired yet.
+- Does not start analysis — no orchestrator, no queue processing.
+- Phase 7 will absorb this coordinator into the full bootstrap and can remove the standalone `app:started` emit added here.
+
+---
+
 ## Phase 4 — Position Queue Manager
 
 **Goal:** `position_analysis` is the single source of truth for everything that needs to be analyzed. The `PositionQueueManager` is responsible for ensuring every FEN in a game's PGN (mainline and variations) has a row in `position_analysis`.
@@ -1028,18 +1217,20 @@ This uses the existing `PositionalFeaturesService` and `FeatureRegistry` infrast
 | 2 | Phase 1 | Event Bus (module augmentation) | None | 4 files, ~60 lines |
 | 3 | Phase 2 | Database Schema | None | 4 files, ~300 lines |
 | 4 | Phase 3 | Game Analysis Scheduler | Phase 0, 1, 2 | 1 file + event decl, ~60 lines |
-| 5 | Phase 4 | Position Queue Manager | Phase 0, 1, 2 | 1 file + event decl, ~120 lines |
-| 6 | Phase 5a | Orchestrator skeleton | Phase 1, 2, 3, 4 | 1 file, ~150 lines |
-| 7 | Phase 5b | GameCoordinator + gameMachine mods | Phase 5a | Modifications to 2 existing files |
-| 8 | Phase 5c | Tree hydration from cache | Phase 5b | Changes in GameCoordinator.initialize() |
-| 9 | Phase 6 | New IPC APIs | Phase 1, 2 | 3 handlers, ~150 lines |
-| 10 | Phase 7 | Sync + bootstrap wiring | Phase 1–6 | Changes to main.ts + SyncWorker |
-| 11 | Phase 8 | Registry removal + handler migration | Phase 5–7 stable | Migrate existing code |
-| 12 | Phase 9 | Position Indexing | Phase 5, future | Deferred |
+| 5 | Phase 3b | SyncCoordinator bootstrap + typed push channels | Phase 1 | 5 files, ~100 lines |
+| 6 | Phase 4 | Position Queue Manager | Phase 0, 1, 2 | 1 file + event decl, ~120 lines |
+| 7 | Phase 5a | Orchestrator skeleton | Phase 1, 2, 3, 4 | 1 file, ~150 lines |
+| 8 | Phase 5b | GameCoordinator + gameMachine mods | Phase 5a | Modifications to 2 existing files |
+| 9 | Phase 5c | Tree hydration from cache | Phase 5b | Changes in GameCoordinator.initialize() |
+| 10 | Phase 6 | New IPC APIs | Phase 1, 2 | 3 handlers, ~150 lines |
+| 11 | Phase 7 | Sync + bootstrap wiring (full) | Phase 1–6 | Changes to main.ts + SyncWorker; absorbs Phase 3b |
+| 12 | Phase 8 | Registry removal + handler migration | Phase 5–7 stable | Migrate existing code |
+| 13 | Phase 9 | Position Indexing | Phase 5, future | Deferred |
 
 ### Parallel work opportunities
 
 - Phase 1 (Event Bus) and Phase 2 (Database Schema) can be built in parallel
+- Phase 3b (SyncCoordinator bootstrap) only needs Phase 1 — it can run immediately after the bus exists, before Phase 2/3 are started
 - Phase 6 (IPC APIs) can be built in parallel with Phase 5 (Orchestrator), since the APIs write to the same DB tables but don't interact at the code level
 - Phase 8 (Cleanup) should only happen after Phase 5–7 are tested and stable
 

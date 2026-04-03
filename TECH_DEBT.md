@@ -28,4 +28,3 @@ MISC
 
 
 LIBRARIES:
-Remove chess.js
