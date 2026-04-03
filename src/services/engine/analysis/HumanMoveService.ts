@@ -1,6 +1,7 @@
 import { UCIEngine } from '../UCIEngine'
 import type { HumanMovePrediction } from '../types'
 import type { MaiaRating } from '../EngineManager'
+import { applyUciMove, STARTING_FEN } from '../../../utils/chess/GameTree'
 
 /**
  * HumanMoveService predicts what a human of a given rating would play,
@@ -129,8 +130,7 @@ export class HumanMoveService {
       matchesPrediction: boolean
     }>
   > {
-    const { Chess } = await import('chess.js')
-    const chess = new Chess(startFen)
+    let currentFen = startFen ?? STARTING_FEN
     const engine = this.getEngine(rating)
     const results: Array<{
       moveIndex: number
@@ -140,10 +140,7 @@ export class HumanMoveService {
     }> = []
 
     for (let i = 0; i < moves.length; i++) {
-      const fen = chess.fen()
-
-      // Get Maia's top prediction before the move
-      const lines = await engine.analyze(fen, { nodes: 1, multipv: 1 })
+      const lines = await engine.analyze(currentFen, { nodes: 1, multipv: 1 })
       const prediction = lines[0]?.pv[0] ?? ''
 
       const move = moves[i]
@@ -154,11 +151,9 @@ export class HumanMoveService {
         matchesPrediction: move === prediction,
       })
 
-      // Apply the actual move
-      const from = move.substring(0, 2)
-      const to = move.substring(2, 4)
-      const promotion = move.length > 4 ? move[4] : undefined
-      chess.move({ from, to, promotion })
+      const nextFen = applyUciMove(currentFen, move)
+      if (!nextFen) throw new Error(`Illegal move ${move} in position ${currentFen}`)
+      currentFen = nextFen
 
       onProgress?.(i + 1, moves.length)
     }

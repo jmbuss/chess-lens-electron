@@ -65,7 +65,6 @@
     "@tanstack/vue-table": "^8.21.3",
     "@vueuse/core": "^14.2.1",
     "better-sqlite3": "^12.6.2",
-    "chess.js": "^1.4.0",
     "chessground": "^9.2.1",
     "chessops": "^0.15.0",
     "class-variance-authority": "^0.7.1",

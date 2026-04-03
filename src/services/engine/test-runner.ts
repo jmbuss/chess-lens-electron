@@ -129,7 +129,6 @@ async function testStockfishFen(manager: EngineManager) {
   const result = await analysis.analyzePosition(TEST_FEN, {
     depth: 40,
     multipv: 1,
-    debug: true,
   })
 
   const topLine = result.lines[0]

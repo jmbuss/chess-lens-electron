@@ -1,6 +1,6 @@
-import { Chess } from 'chess.js'
 import { UCIEngine } from '../UCIEngine'
 import { NAG, NAG_SYMBOLS, type MoveNAG, type AnalysisOptions, type WDL } from '../types'
+import { applyUciMove, getTurn, STARTING_FEN } from '../../../utils/chess/GameTree'
 
 /** EP = (win + draw/2) / 1000 */
 function expectedPointsFromWDL(wdl: WDL): number {
@@ -40,32 +40,31 @@ export class NAGService {
     const depth = options.depth ?? 18
     const analysisOptions: AnalysisOptions = { ...options, depth, multipv: 1 }
 
-    const chess = new Chess(startFen)
+    let currentFen = startFen ?? STARTING_FEN
     const results: MoveNAG[] = []
 
     await this.engine.newGame()
 
-    let prevLines = await this.engine.analyze(chess.fen(), analysisOptions)
+    let prevLines = await this.engine.analyze(currentFen, analysisOptions)
     let prevWdl = prevLines[0]?.wdl ?? null
-    let prevTurn = chess.turn() as 'w' | 'b'
+    let prevTurn = getTurn(currentFen)
 
     for (let i = 0; i < moves.length; i++) {
       const move = moves[i]
       const bestMoveBeforePlay = prevLines[0]?.pv[0] ?? ''
       const moverColor = prevTurn
 
-      const from = move.substring(0, 2)
-      const to = move.substring(2, 4)
-      const promotion = move.length > 4 ? move[4] : undefined
-      chess.move({ from, to, promotion })
+      const nextFen = applyUciMove(currentFen, move)
+      if (!nextFen) throw new Error(`Illegal move ${move} in position ${currentFen}`)
+      currentFen = nextFen
 
-      const currentLines = await this.engine.analyze(chess.fen(), analysisOptions)
+      const currentLines = await this.engine.analyze(currentFen, analysisOptions)
       const currentRawWdl = currentLines[0]?.wdl ?? null
 
       // Normalize WDL to White's perspective.
       // Engine WDL is side-to-move relative: after a move, the side to move
       // is now the opponent. So we normalize based on whose turn it is now.
-      const currentTurn = chess.turn() as 'w' | 'b'
+      const currentTurn = getTurn(currentFen)
       const normalizedPrevWdl = prevWdl && moverColor === 'b'
         ? { win: prevWdl.loss, draw: prevWdl.draw, loss: prevWdl.win }
         : prevWdl

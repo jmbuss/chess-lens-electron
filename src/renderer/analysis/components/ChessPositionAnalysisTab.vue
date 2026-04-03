@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Chess } from 'chess.js'
 import { computed } from 'vue'
 import type { Key } from 'chessground/types'
 import { useInjectedGameNavigator } from '../composables/provideChessGame'
@@ -8,6 +7,7 @@ import { useHumanMoveAnalysis } from '../composables/useHumanMoveAnalysis'
 import type { HumanMovePrediction } from 'src/services/engine/types'
 import type { GameChildNode } from '../composables/types'
 import { nagSymbol, nagBgClass as getNagBgClass, nagName } from 'src/utils/chess/nag'
+import { isGameOver as checkGameOver, uciToSan as toSan, applyUciMove } from 'src/utils/chess/GameTree'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ChevronDown, Info, BookOpen } from 'lucide-vue-next'
@@ -27,13 +27,7 @@ const augmentedMaiaCeiling = computed(() => analysisNode.value?.augmentedMaiaCei
 const floorMistakeProb = computed(() => analysisNode.value?.floorMistakeProb ?? null)
 const ceilingMistakeProb = computed(() => analysisNode.value?.ceilingMistakeProb ?? null)
 
-const isGameOver = computed(() => {
-  try {
-    return new Chess(currentFen.value).isGameOver()
-  } catch {
-    return false
-  }
-})
+const isGameOver = computed(() => checkGameOver(currentFen.value))
 
 // The move played FROM the current position (first mainline child)
 const nextMoveNode = computed((): GameChildNode | null => {
@@ -87,35 +81,21 @@ const nagBgClass = computed((): string => getNagBgClass(nag.value ?? null))
 const formatPct = (v: number): string => `${(v * 100).toFixed(0)}%`
 
 function uciToSan(fen: string, uci: string): string {
-  if (!uci || uci.length < 4) return uci
-  try {
-    const chess = new Chess(fen)
-    const from = uci.slice(0, 2) as Key
-    const to = uci.slice(2, 4) as Key
-    const promotion = uci[4] || undefined
-    const move = chess.move({ from, to, promotion })
-    return move ? move.san : uci
-  } catch {
-    return uci
-  }
+  return toSan(fen, uci)
 }
 
 function pvToSanAndUci(fen: string, pv: string[], maxMoves = 6): { san: string; uci: string }[] {
   const result: { san: string; uci: string }[] = []
-  try {
-    const chess = new Chess(fen)
-    for (let i = 0; i < Math.min(pv.length, maxMoves); i++) {
-      const uci = pv[i]
-      if (!uci || uci.length < 4) break
-      const from = uci.slice(0, 2) as Key
-      const to = uci.slice(2, 4) as Key
-      const promotion = uci[4] || undefined
-      const move = chess.move({ from, to, promotion })
-      if (!move) break
-      result.push({ san: move.san, uci })
-    }
-  } catch {
-    // Invalid FEN or move; return empty
+  let currentFen = fen
+  for (let i = 0; i < Math.min(pv.length, maxMoves); i++) {
+    const uci = pv[i]
+    if (!uci || uci.length < 4) break
+    const san = toSan(currentFen, uci)
+    if (san === uci) break
+    const nextFen = applyUciMove(currentFen, uci)
+    if (!nextFen) break
+    result.push({ san, uci })
+    currentFen = nextFen
   }
   return result
 }

@@ -11,9 +11,9 @@ import type Database from 'better-sqlite3'
 import { SyncModel, type SyncPlatform, type CreateQueueItemParams } from '../../database/sync'
 import { ChessGameModel } from '../../database/chess'
 import { fetchArchivesList } from '../chesscom'
-import { Chess } from 'chess.js'
-import { lookupByMoves } from '@chess-openings/eco.json'
+import { findOpening } from '@chess-openings/eco.json'
 import { getOpeningBookSingleton } from '../../utils/chess/openingBook'
+import { parseGameTree, getMoveList, collectMainlineFens } from '../../utils/chess/GameTree'
 import type {
   SyncProgress,
   SyncProgressCallback,
@@ -354,12 +354,18 @@ export class SyncWorker {
             let eco: string | undefined
             let name: string | undefined
             try {
-              const chess = new Chess()
-              chess.loadPgn(game.pgn)
-              moveCount = Math.ceil(chess.history().length / 2)
-              const { opening } = lookupByMoves(chess, book, { positionBook })
-              eco = opening?.eco
-              name = opening?.name
+              const { root } = parseGameTree(game.pgn)
+              moveCount = Math.ceil(getMoveList(root).length / 2)
+
+              const fens = collectMainlineFens(root)
+              for (let i = fens.length - 1; i >= 0; i--) {
+                const opening = findOpening(book, fens[i].fen, positionBook)
+                if (opening) {
+                  eco = opening.eco
+                  name = opening.name
+                  break
+                }
+              }
             } catch {
               // Leave moveCount and opening undefined if parsing fails
             }

@@ -1,7 +1,7 @@
-import { getOpeningsByEco, lookupByMoves } from '@chess-openings/eco.json'
+import { getOpeningsByEco, findOpening } from '@chess-openings/eco.json'
 import { getOpeningBookSingleton } from 'src/utils/chess/openingBook'
+import { parseGameTree, collectMainlineFens } from 'src/utils/chess/GameTree'
 import { computedAsync } from '@vueuse/core'
-import { Chess } from 'chess.js'
 import { computed, MaybeRef, toValue } from 'vue'
 
 type UseChessOpeningOptions = {
@@ -21,10 +21,14 @@ export const useChessOpening = ({ ecoCode, pgn }: UseChessOpeningOptions) => {
     const pgnValue = toValue(pgn)
     if (!pgnValue) return null
     const { book, positionBook } = await getOpeningBookSingleton()
-    const chess = new Chess()
-    chess.loadPgn(pgnValue)
-    const { opening } = lookupByMoves(chess, book, { positionBook })
-    return opening
+    const { root } = parseGameTree(pgnValue)
+    const fens = collectMainlineFens(root)
+
+    for (let i = fens.length - 1; i >= 0; i--) {
+      const opening = findOpening(book, fens[i].fen, positionBook)
+      if (opening) return opening
+    }
+    return null
   })
 
   const opening = computed(() => {

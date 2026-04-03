@@ -1,7 +1,17 @@
 import { Chess } from 'chessops/chess'
 import { parseFen, makeFen } from 'chessops/fen'
-import { parsePgn, startingPosition, Node, ChildNode, parseComment, isChildNode } from 'chessops/pgn'
-import { makeSquare, parseSquare } from 'chessops/util'
+import {
+  parsePgn,
+  startingPosition,
+  Node,
+  ChildNode,
+  parseComment,
+  isChildNode,
+  makePgn,
+  defaultHeaders,
+} from 'chessops/pgn'
+import type { Game, PgnNodeData } from 'chessops/pgn'
+import { makeSquare, parseSquare, parseUci } from 'chessops/util'
 import { makeSan, parseSan } from 'chessops/san'
 import { isDrop } from 'chessops/types'
 import type { AugmentedNodeData, GameNode, GameChildNode, ParsedGameTree, PgnHeaders } from './types'
@@ -287,4 +297,117 @@ export function addMove(
   parentNode.children.push(childNode)
 
   return childNode
+}
+
+/**
+ * Serialize a game tree back to a PGN string.
+ * Uses chessops' `makePgn` under the hood.
+ */
+export function serializePgn(root: GameNode, headers?: PgnHeaders): string {
+  const headerMap = defaultHeaders()
+  if (headers) {
+    const knownKeys: Record<string, string> = {
+      white: 'White',
+      black: 'Black',
+      whiteElo: 'WhiteElo',
+      blackElo: 'BlackElo',
+      event: 'Event',
+      site: 'Site',
+      date: 'Date',
+      round: 'Round',
+      result: 'Result',
+      eco: 'ECO',
+      timeControl: 'TimeControl',
+      termination: 'Termination',
+    }
+    for (const [key, value] of Object.entries(headers)) {
+      if (value === undefined) continue
+      const pgnTag = knownKeys[key] ?? key
+      headerMap.set(pgnTag, value)
+    }
+  }
+
+  const game: Game<PgnNodeData> = {
+    headers: headerMap,
+    moves: root as unknown as Node<PgnNodeData>,
+  }
+  return makePgn(game)
+}
+
+/**
+ * Walk the mainline (children[0] chain) and return each position's FEN and ply.
+ * Includes the starting position at ply 0.
+ */
+export function collectMainlineFens(root: GameNode): { fen: string; ply: number }[] {
+  const result: { fen: string; ply: number }[] = [{ fen: STARTING_FEN, ply: 0 }]
+  let ply = 0
+  for (const node of root.mainlineNodes()) {
+    ply++
+    result.push({ fen: node.data.fen, ply })
+  }
+  return result
+}
+
+/**
+ * Full DFS walk that collects every FEN from the tree, including all variations.
+ * Includes the starting position at ply 0.
+ */
+export function collectAllFens(root: GameNode): { fen: string; ply: number }[] {
+  const result: { fen: string; ply: number }[] = [{ fen: STARTING_FEN, ply: 0 }]
+
+  function walk(node: GameNode | GameChildNode, ply: number): void {
+    for (const child of node.children) {
+      result.push({ fen: child.data.fen, ply: ply + 1 })
+      walk(child, ply + 1)
+    }
+  }
+
+  walk(root, 0)
+  return result
+}
+
+/**
+ * Apply a single UCI move to a FEN and return the resulting FEN string.
+ * Returns null if the FEN is invalid or the move is illegal.
+ */
+export function applyUciMove(fen: string, uciMove: string): string | null {
+  const setup = parseFen(fen)
+  if (setup.isErr) return null
+  const pos = Chess.fromSetup(setup.value)
+  if (pos.isErr) return null
+
+  const move = parseUci(uciMove)
+  if (!move) return null
+
+  pos.value.play(move)
+  return makeFen(pos.value.toSetup())
+}
+
+/**
+ * Returns true if the position is checkmate or stalemate.
+ */
+export function isGameOver(fen: string): boolean {
+  const setup = parseFen(fen)
+  if (setup.isErr) return false
+  const pos = Chess.fromSetup(setup.value)
+  if (pos.isErr) return false
+  return pos.value.isEnd()
+}
+
+/**
+ * Convert a UCI move string to SAN notation given the position FEN.
+ * Returns the original UCI string if conversion fails.
+ */
+export function uciToSan(fen: string, uciMove: string): string {
+  if (!uciMove || uciMove.length < 4) return uciMove
+  const setup = parseFen(fen)
+  if (setup.isErr) return uciMove
+  const pos = Chess.fromSetup(setup.value)
+  if (pos.isErr) return uciMove
+
+  const move = parseUci(uciMove)
+  if (!move) return uciMove
+
+  const san = makeSan(pos.value, move)
+  return san ?? uciMove
 }

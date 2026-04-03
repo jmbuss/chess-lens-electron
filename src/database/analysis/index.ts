@@ -1,7 +1,6 @@
 export type {
   GameFSMState,
   NodeFsmState,
-  GamePhase,
   AnalysisPreset,
   AnalysisModeConfig,
   AnalysisNode,

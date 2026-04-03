@@ -1,5 +1,5 @@
-import { Chess } from 'chess.js'
 import { UCIEngine } from '../UCIEngine'
+import { applyUciMove, STARTING_FEN } from '../../../utils/chess/GameTree'
 import type { AnalysisOptions, AnalysisLine, PositionAnalysis } from '../types'
 
 /**
@@ -39,39 +39,32 @@ export class AnalysisService {
     startFen?: string,
     onProgress?: (completed: number, total: number) => void
   ): Promise<PositionAnalysis[]> {
-    const chess = new Chess(startFen)
+    let currentFen = startFen ?? STARTING_FEN
     const results: PositionAnalysis[] = []
     const totalPositions = moves.length + 1
 
     await this.engine.newGame()
 
-    // Analyze starting position
-    const startingAnalysis = await this.engine.analyze(chess.fen(), options)
+    const startingAnalysis = await this.engine.analyze(currentFen, options)
     results.push({
-      fen: chess.fen(),
+      fen: currentFen,
       moveIndex: 0,
       lines: startingAnalysis,
       bestMove: startingAnalysis[0]?.pv[0] ?? '',
     })
     onProgress?.(1, totalPositions)
 
-    // Analyze each position after a move is made
     for (let i = 0; i < moves.length; i++) {
-      const move = moves[i]
+      const nextFen = applyUciMove(currentFen, moves[i])
+      if (!nextFen) throw new Error(`Illegal move ${moves[i]} in position ${currentFen}`)
+      currentFen = nextFen
 
-      // Apply the move (chess.js accepts UCI format via verbose move)
-      const from = move.substring(0, 2)
-      const to = move.substring(2, 4)
-      const promotion = move.length > 4 ? move[4] : undefined
-      chess.move({ from, to, promotion })
-
-      const fen = chess.fen()
-      const lines = await this.engine.analyze(fen, options)
+      const lines = await this.engine.analyze(currentFen, options)
 
       results.push({
-        fen,
+        fen: currentFen,
         moveIndex: i + 1,
-        movePlayed: move,
+        movePlayed: moves[i],
         lines,
         bestMove: lines[0]?.pv[0] ?? '',
       })

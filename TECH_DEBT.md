@@ -27,3 +27,5 @@ MISC
 1. clicking aorund too quickly can cause multiple engines to start up at once
 
 
+LIBRARIES:
+Remove chess.js
