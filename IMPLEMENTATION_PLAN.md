@@ -14,8 +14,8 @@ The core changes:
 
 ### What stays the same
 
-- **XState `gameMachine`** — keeps its tree, incremental eval curve / player stats / positional radar recomputation, navigate/insertNode events, IDLE → POSITION_ANALYSIS / BACKGROUND_PROCESSING / COMPLETE flow. Minor additions only (cache check, dual-write, priority event).
-- **XState `positionMachine`** — completely unchanged (GATHERING → EVAL_MAIA_MOVES → CLASSIFY)
+- **XState `gameMachine`** — keeps its tree, incremental eval curve / player stats / positional radar recomputation, navigate/insertNode events, IDLE → POSITION_ANALYSIS / BACKGROUND_PROCESSING / COMPLETE flow. Minor additions only (e.g. `priorityChanged` for orchestrator preemption). **Does not** perform SQLite reads/writes.
+- **XState `positionMachine`** — same engine pipeline (GATHERING → EVAL_MAIA_MOVES → CLASSIFY), plus a **leading cache-probe** state: async lookup (promise/`invoke`) against normalized results; on a hit that matches current `config` / depth (via `config_hash` or equivalent), jump straight to the terminal output path and skip engine work.
 - **`GameCoordinator`** — keeps its role of wiring engines, building the concrete position machine, subscribing to the actor, and pushing IPC updates. Wrapped by the new orchestrator instead of being managed by `GameCoordinatorRegistry`.
 - **IPC patterns** — `IpcHandler`, module augmentation, `IPCHandlerRegistry`
 - **Database patterns** — `BaseModel`, static CRUD, `better-sqlite3`
@@ -34,7 +34,7 @@ The core changes:
 | No backend event system | Typed `EventBus` (module augmentation, like `IpcChannels`) coordinates all services |
 | PGN mutations handled ad-hoc per handler | Single `pgn:mutate` API with event emission |
 | `GameCoordinatorRegistry.stopAll()` before new analysis | Orchestrator manages preemption via priority comparison |
-| `gameMachine` + `positionMachine` own the analysis runtime | Same — machines unchanged aside from cache check + dual-write |
+| `gameMachine` + `positionMachine` own the analysis runtime | `positionMachine` gains a cache-probe front door; `gameMachine` gains orchestration hooks only; **SQLite dual-write stays in `GameCoordinator`** (not in assign blocks) |
 
 ---
 
@@ -83,9 +83,8 @@ Main Process
 │   └── GameCoordinator (existing, per game)
 │       ├── owns gameMachine (XState, existing)
 │       │   ├── tree, evalCurve, playerStats, radar — incremental recompute
-│       │   ├── spawns positionMachine (existing, unchanged)
-│       │   ├── NEW: cache check before spawning positionMachine
-│       │   └── NEW: dual-write to position_analysis on complete
+│       │   ├── spawns positionMachine (cache probe is *inside* positionMachine)
+│       │   └── on each finished position: coordinator dual-writes to position_analysis
 │       ├── pushes analysis:node-update, analysis:game-state-update
 │       └── NEW: writes game aggregates + emits game:analysis:complete
 ├── GameAnalysisScheduler (singleton)
@@ -105,7 +104,7 @@ Main Process
 
 ---
 
-## Phase 0 — Consolidate PGN Parsing: Migrate off chess.js
+## Phase 0 — Consolidate PGN Parsing: Migrate off chess.js ✅
 
 **Goal:** Make `GameTree.ts` the single authority for all PGN parsing and serialization. Remove `chess.js` from services and the main process wherever it is used as a position stepper or tree builder.
 
@@ -179,7 +178,7 @@ src/renderer/analysis/components/ChessPositionAnalysisTab.vue  — migrate isGam
 
 ---
 
-## Phase 1 — Event Bus
+## Phase 1 — Event Bus ✅
 
 **Goal:** Introduce a typed, synchronous event emitter in the main process. All subsequent phases depend on this.
 
@@ -333,7 +332,7 @@ The event bus singleton is created in `src/events/index.ts` and imported by any 
 
 ---
 
-## Phase 2 — Database Schema
+## Phase 2 — Database Schema ✅
 
 **Goal:** Add the new tables that back the priority queues and normalized position storage. Existing tables (`chess_games`, `game_analyses`) remain untouched during this phase.
 
@@ -471,7 +470,7 @@ export const database = new DatabaseService([
 
 ---
 
-## Phase 3 — Game Analysis Scheduler
+## Phase 3 — Game Analysis Scheduler ✅
 
 **Goal:** Listen for `game:synced` events and automatically enqueue games for analysis.
 
@@ -583,7 +582,7 @@ const scheduler = new GameAnalysisScheduler(database.getDatabase(), eventBus)
 
 ---
 
-## Phase 3b — SyncCoordinator Bootstrap (Early Validation)
+## Phase 3b — SyncCoordinator Bootstrap (Early Validation) ✅
 
 **Goal:** Wire `SyncCoordinator` to `app:started` so that syncing fires automatically on launch. This phase is intentionally minimal — it proves the event bus is working and that real syncs flow through it, without depending on any of the analysis orchestration phases (4–7).
 
@@ -772,7 +771,7 @@ ipcService.offPush('sync:progress', handleProgress)
 
 ---
 
-## Phase 4 — Position Queue Manager
+## Phase 4 — Position Queue Manager ✅
 
 **Goal:** `position_analysis` is the single source of truth for everything that needs to be analyzed. The `PositionQueueManager` is responsible for ensuring every FEN in a game's PGN (mainline and variations) has a row in `position_analysis`.
 
@@ -850,11 +849,11 @@ export class PositionQueueManager {
 
 ## Phase 5 — Analysis Orchestrator
 
-**Goal:** Replace `GameCoordinatorRegistry` with a persistent, event-driven orchestrator that runs games from the queue, while **keeping the existing `gameMachine` and `positionMachine`** as the core analysis runtime.
+**Goal:** Replace `GameCoordinatorRegistry` with a persistent, event-driven orchestrator that runs games from the queue, while **keeping the existing `gameMachine` and `positionMachine` pipeline** as the core analysis runtime (with the additions described below).
 
 ### What stays
 
-The `gameMachine` and `positionMachine` stay in their current form. The game machine already does exactly what we want for the active game:
+The `gameMachine` still owns the tree and incremental aggregates; the `positionMachine` still runs the same Stockfish / Maia / classification pipeline **after** a cache miss. The game machine already does exactly what we want for the active game:
 
 - Owns the in-memory `AnalysisNode` tree
 - Spawns the `positionMachine` for each position (POSITION_ANALYSIS / BACKGROUND_PROCESSING)
@@ -870,11 +869,11 @@ This incremental computation is essential for the UI — the user sees accuracy,
 
 ### What changes
 
-The `gameMachine` gets two **targeted modifications**, and `GameCoordinator` is wrapped by a new `AnalysisOrchestrator`:
+The `gameMachine` gets **small orchestration-only changes**, the `positionMachine` gets a **cache-first entry**, `GameCoordinator` owns **all SQLite I/O** for the normalized cache, and the app gains an `AnalysisOrchestrator`:
 
-1. **Dual-write on position complete:** After the existing `setNodeResult` + stats recompute in each `onDone` handler, also write the `PositionOutput` to the `position_analysis` table. This is a one-line addition in the `assign` blocks.
+1. **Dual-write to `position_analysis` (not in `gameMachine` assigns):** When a position finishes, the same `PositionOutput` the tree already receives must also be persisted. Per **§5b-persistence**, that write happens in **`GameCoordinator.actor.subscribe()`** after the position actor reaches its terminal state — **not** inside `gameMachine` `onDone` `assign` blocks. (Those assigns stay focused on `setNodeResult` + incremental stats; the old bullet at ~874 that suggested a DB write in assigns is **obsolete** and contradicted coordinator-owned persistence.)
 
-2. **Cache check on position start:** Before spawning the `positionMachine` for a position, check `position_analysis` for an existing result with a matching `(fen, config_hash)`. If found and `status = 'complete'`, skip the engine work and apply the cached result directly via `setNodeResult`. This turns the position machine invocation into a conditional — only run it on cache miss.
+2. **Cache check inside `positionMachine`:** Add an **initial** state (before `GATHERING`) that **`invoke`s an async cache loader** (promise / `fromPromise` — the machine already uses this pattern elsewhere). The injected function (provided when `GameCoordinator` builds the actor) queries `position_analysis` for `(fen, config_hash)` and returns a deserialized `PositionOutput` or `null`. If the row is **`complete`** and the stored payload is valid for the **current analysis preset / depth** (whatever `config_hash` encodes — e.g. fast vs deep), transition **directly to the same terminal / output-producing state** the normal pipeline would reach after `CLASSIFY`, so the parent `gameMachine` still sees one “position done” completion with a full `PositionOutput`. On miss or insufficient depth, transition into existing **`GATHERING`** and run Stockfish / Maia as today.
 
 3. **Orchestrator replaces `GameCoordinatorRegistry`:** Instead of `GameCoordinatorRegistry.stopAll()` + manual coordinator creation in IPC handlers, the `AnalysisOrchestrator` is a singleton that:
    - Listens to `game:queue:updated` and `position:queue:updated`
@@ -963,17 +962,23 @@ export class AnalysisOrchestrator {
 
 **`gameMachine` changes (minimal):**
 
-The existing `onDone` assign blocks in POSITION_ANALYSIS and BACKGROUND_PROCESSING stay exactly as they are. Two additions:
+The existing `onDone` assign blocks in POSITION_ANALYSIS and BACKGROUND_PROCESSING stay exactly as they are — **no SQLite in assigns.** One addition:
 
-1. **New guard: `positionHasCachedResult`** — checked before spawning the position machine. If the FEN has a completed `position_analysis` row with sufficient config, the guard returns the cached result and the machine transitions directly through `onDone` without invoking the position machine.
+1. **New event: `priorityChanged`** — sent by the orchestrator when `position:queue:updated` fires. The game machine uses this to re-evaluate whether the current position is still the highest priority, and if not, enters STOP_AND_WAIT to switch.
 
-2. **New event: `priorityChanged`** — sent by the orchestrator when `position:queue:updated` fires. The game machine uses this to re-evaluate whether the current position is still the highest priority, and if not, enters STOP_AND_WAIT to switch.
+   **Note — changing position priority:** Any path that changes which position should run next (including `position:prioritize`, `game:prioritize`, and orchestrator-driven `priorityChanged`) must preserve the **same sequencing** the current `gameMachine` + `positionMachine` use today on refocus: **stop** the immediate in-flight Stockfish step for the position being left, **ensure** the shared engine pair is **idle**, then **start** the next position’s analysis (cache probe and, on miss, the full pipeline). Avoid overlapping engine work between the previous and newly prioritized position.
 
 The key point: **the tree, eval curves, player stats, and positional radar continue to be computed incrementally in the game machine's `assign` blocks**, exactly as they do today. The game machine is still the authority on game-level metrics.
 
+**`positionMachine` changes:**
+
+1. **New initial state** (e.g. `CACHE_PROBE` or `checkingCache`) — `invoke` an async **cache loader** passed in via machine `input` / context (implemented by `GameCoordinator`, which has `db`). The loader resolves to a `PositionOutput` or `null`.
+2. **Transitions:** `CACHE_HIT` (valid complete row for current `config_hash` / depth) → assign cached fields into context and go to **`done`** (or an equivalent final state that emits the same output shape as the post-`CLASSIFY` path). `CACHE_MISS` → enter existing **`GATHERING`**.
+3. **No direct `better-sqlite3` in the machine file** — only the injected promise; keeps the graph testable with a stubbed loader.
+
 ```
-Current flow (unchanged):
-  positionMachine completes
+Current flow (unchanged at the game-machine layer):
+  positionMachine reaches terminal state (cache hit fast-path OR full GATHERING → … → CLASSIFY)
     → gameMachine.onDone assign:
       → setNodeResult(tree, nodeId, output)     ← updates tree
       → buildEvalCurveFromMainLine(newTree)      ← incremental
@@ -981,11 +986,38 @@ Current flow (unchanged):
       → computePlayerStats(newTree, 'b')         ← incremental
       → computePositionalRadarData(newTree)      ← incremental
 
-New addition (dual-write):
+positionMachine (new front door):
+  initial: invoke loadPositionCache({ fen, configHash })  ← Promise, implemented by coordinator
+    → hit + depth/config OK → done (full PositionOutput in context)
+    → miss → GATHERING → … (existing pipeline)
+
+New addition (dual-write — coordinator only):
   GameCoordinator.actor.subscribe()
     → pushNewlyCompletedNodes()                  ← existing IPC push
     → writePositionToCache(node, result)         ← NEW: write to position_analysis
+
+On game complete:
+  GameCoordinator.actor.subscribe() receives COMPLETE snapshot
+    → GameAnalysisQueueModel.markComplete(db, gameId, aggregates)
+         ← writes accuracy_white, accuracy_black, white_stats_json,
+            black_stats_json, eval_curve_json to game_analysis_queue
+    → bus.emit('game:analysis:complete', { gameId })
 ```
+
+#### 5b-persistence — Persistence ownership (canonical reference)
+
+Two tables receive writes from the analysis pipeline. The responsibilities are:
+
+| Table | Written by | When | What |
+|-------|-----------|------|------|
+| `position_analysis` | **Read:** injected cache loader invoked from **`positionMachine`**’s initial state (implementation lives in `GameCoordinator`). **Write:** `GameCoordinator` (via `actor.subscribe()`) | **Read** on position start (promise). **Write** each time a `positionMachine` actor completes and its terminal output appears in the snapshot | The `PositionOutput` for that FEN — eval, WDL, Maia moves, classification. The machine **never imports** `better-sqlite3`; it only awaits the injected loader. The coordinator implements the loader and the **dual-write** after completion. |
+| `game_analysis_queue` | `GameCoordinator` (on `COMPLETE` game machine snapshot) | Once, when the `gameMachine` reaches the `COMPLETE` state | Game-level aggregates computed incrementally inside the game machine: `accuracy_white`, `accuracy_black`, `white_stats_json`, `black_stats_json`, `eval_curve_json`. The `gameMachine` computes these values in memory; the coordinator flushes them to the DB on completion via `GameAnalysisQueueModel.markComplete`. |
+
+**Why the coordinator, not the machine?**
+
+The `gameMachine` and `positionMachine` are XState actors — they own in-memory state and emit snapshots. They do **not** import or open the database. **Writes** always go through `GameCoordinator.subscribe`. **Reads** for the position cache go through an **injected async function** (promise) passed into `positionMachine` when the coordinator creates the actor, so the statechart expresses “await cache” without coupling the machine module to SQLite. This keeps graphs testable with a stubbed loader.
+
+**The `game_analyses` JSON blob table (existing)** is unrelated to the two tables above. It stores the full in-memory `AnalysisNode` tree as a document (needed for variations, tree shape, and metadata that are not relational). It is **not** removed — the dual-write to `position_analysis` is additive, and the `game_analyses` blob remains the authoritative source for the tree until a future phase explicitly migrates away from it.
 
 #### 5c — Renderer tree reconstruction
 
@@ -1018,9 +1050,9 @@ During Phase 5, both storage mechanisms coexist:
 ```
 src/services/analysis/
   AnalysisOrchestrator.ts      — NEW: singleton queue manager
-  GameCoordinator.ts           — MODIFIED: cache check, dual-write, aggregate write
-  machines/gameMachine.ts      — MODIFIED: cache guard, priority event
-  machines/positionMachine.ts  — UNCHANGED
+  GameCoordinator.ts           — MODIFIED: inject cache loader, dual-write, aggregate write
+  machines/gameMachine.ts      — MODIFIED: priority event only
+  machines/positionMachine.ts  — MODIFIED: leading CACHE_PROBE invoke + transitions
 ```
 
 ---
@@ -1069,6 +1101,8 @@ declare module 'src/ipc/handlers' {
 **Handler logic:**
 1. `PositionAnalysisModel.updatePriority(db, fen, configHash, 1)`
 2. `bus.emit('position:queue:updated', { reason: 'priority_changed' })`
+
+_Runtime:_ When this changes which position should analyze next, the active coordinator / machines must follow the **“Note — changing position priority”** under **5b — GameCoordinator + gameMachine modifications** (stop in-flight Stockfish, engine idle, then start the next position)._
 
 ### `pgn:mutate`
 
@@ -1297,3 +1331,16 @@ Work to schedule **after** the phases above are implemented and stable — not b
 - **Incremental (larger):** Push newly inserted games (or IDs) to the renderer and merge into the TanStack Query cache with `setQueryData` (similar to analysis node updates in `useGameAnalysis`), avoiding repeated `chess:getAll` during sync. Would likely extend `game:synced`-style payloads or add IPC and a `chess:getByIds` (or equivalent) so rows can be built without a full table scan on the renderer.
 
 **Relevant files:** `src/renderer/composables/syncGames/useSyncGames.ts`, `src/renderer/composables/chessGames/useChessGames.ts`, `src/services/sync/worker.ts` (`sendProgress` cadence).
+
+### Focus / visibility: auto-sync on return to app
+
+**Goal:** When the user brings Chess Lens back to the foreground (main window gains OS focus, and optionally when the renderer document becomes visible again after being backgrounded), run the same “kick sync for all accounts” path as startup — without hammering the network if they alt-tab constantly.
+
+**Follow-up work:**
+
+- **Event:** Add something like `app:focused` (exact name TBD) on the typed event bus, emitted from the main process when the primary `BrowserWindow` fires `'focus'` (and consider pairing with renderer `document.visibilityState === 'visible'` via a small IPC ping if “tab” behavior in dev or multi-window setups needs finer granularity than OS window focus).
+- **Handler:** `SyncCoordinator` (or a sibling) listens for `app:focused` and calls the same internal helper used by `app:started` / initial sync — reusing the existing `syncWorkerManager.isRunning` guard so overlapping triggers do not double-start workers.
+- **Rate guard (auto path only):** Before starting focus-triggered sync, check a persisted timestamp (e.g. per platform account’s last completed sync end time, or a single `last_background_sync_at` in app metadata). If a successful auto sync completed within the last **~1 hour**, skip the run. Tune the window (1h) as a constant.
+- **Manual sync unchanged:** The user-initiated `sync:start` (or equivalent control on the games / settings page) must **bypass** this throttle — always allowed regardless of the 1-hour guard — and should update the “last sync” timestamp so the next focus event does not immediately re-fire a redundant auto sync if one just finished manually.
+
+**Relevant areas:** `SyncCoordinator`, event bus augmentation (`app` lifecycle events), platform account or sync metadata storage for last-sync time, existing `SyncStartHandler` / `sync:start` entry point.
