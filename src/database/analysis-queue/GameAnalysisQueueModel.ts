@@ -43,22 +43,6 @@ export class GameAnalysisQueueModel implements BaseModel {
       )
       WHERE status = 'pending'
     `)
-
-    // Migration: add new columns if they don't exist (for existing databases)
-    const cols = db.pragma('table_info(game_analysis_queue)') as { name: string }[]
-    const colNames = new Set(cols.map(c => c.name))
-    if (!colNames.has('node_results_json')) {
-      db.exec('ALTER TABLE game_analysis_queue ADD COLUMN node_results_json TEXT')
-    }
-    if (!colNames.has('radar_data_json')) {
-      db.exec('ALTER TABLE game_analysis_queue ADD COLUMN radar_data_json TEXT')
-    }
-    if (!colNames.has('maia_floor_curve_json')) {
-      db.exec('ALTER TABLE game_analysis_queue ADD COLUMN maia_floor_curve_json TEXT')
-    }
-    if (!colNames.has('maia_ceiling_curve_json')) {
-      db.exec('ALTER TABLE game_analysis_queue ADD COLUMN maia_ceiling_curve_json TEXT')
-    }
   }
 
   // ---------------------------------------------------------------------------

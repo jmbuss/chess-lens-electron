@@ -8,7 +8,7 @@ Database models in this project follow a consistent pattern:
 - They implement the `BaseModel` interface
 - They use SQLite via `better-sqlite3`
 - They provide static methods for CRUD operations
-- They handle table initialization and migrations
+- They handle idempotent table initialization (`CREATE TABLE IF NOT EXISTS`, indexes)
 - They use TypeScript for type safety
 
 ## File Structure
@@ -64,11 +64,10 @@ export class UserModel implements BaseModel {
 
 ### 3. Implement `initializeTables`
 
-This method creates the table and handles migrations:
+This method defines the full schema for new databases. Keep the `CREATE TABLE` as the single source of truth for columns and types; use `CREATE INDEX IF NOT EXISTS` for indexes.
 
 ```typescript
 initializeTables(db: Database.Database): void {
-  // Create table if it doesn't exist
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,17 +79,6 @@ initializeTables(db: Database.Database): void {
     )
   `)
 
-  // Migrate existing table: check for missing columns and add them
-  const tableInfo = db.pragma('table_info(users)') as Array<{ name: string }>
-  const existingColumns = new Set(tableInfo.map((col) => col.name))
-
-  // Add columns if missing (with defaults for existing rows)
-  if (!existingColumns.has('firstName')) {
-    db.exec('ALTER TABLE users ADD COLUMN firstName TEXT NOT NULL DEFAULT ""')
-  }
-  // ... repeat for other columns
-
-  // Create indexes for faster lookups
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)
   `)
@@ -98,11 +86,11 @@ initializeTables(db: Database.Database): void {
 ```
 
 **Key points:**
-- Use `CREATE TABLE IF NOT EXISTS` to avoid errors on re-initialization
-- Always include `id INTEGER PRIMARY KEY AUTOINCREMENT`
-- Use `TEXT NOT NULL DEFAULT (datetime('now'))` for timestamp fields
-- Add migration logic to handle schema changes
+- Use `CREATE TABLE IF NOT EXISTS` so startup is safe if the file already exists
+- Always include `id INTEGER PRIMARY KEY AUTOINCREMENT` when using integer primary keys
+- Use `TEXT NOT NULL DEFAULT (datetime('now'))` for timestamp fields (ISO-friendly)
 - Create indexes on frequently queried columns (like email, foreign keys)
+- For **in-the-wild upgrades** after v0, plan explicit schema steps (`PRAGMA user_version`, `ALTER TABLE`, or one-time rebuilds)—do not rely on `CREATE TABLE IF NOT EXISTS` alone to add columns to existing tables
 
 ### 4. Implement Static CRUD Methods
 
@@ -263,7 +251,7 @@ import type { UserData } from './types'
 
 export class UserModel implements BaseModel {
   initializeTables(db: Database.Database): void {
-    // Table creation and migration logic
+    // CREATE TABLE IF NOT EXISTS + indexes
   }
 
   static create(db: Database.Database, userData: Omit<UserData, 'id' | 'createdAt' | 'updatedAt'>): UserData
@@ -279,7 +267,7 @@ export class UserModel implements BaseModel {
 
 1. **Always use prepared statements** - Prevents SQL injection and improves performance
 2. **Use TypeScript types** - Define interfaces for all data structures
-3. **Handle migrations gracefully** - Check for existing columns before adding new ones
+3. **Keep `initializeTables` declarative** - Full column list in `CREATE TABLE`; add explicit upgrade steps only when you need to support existing user databases
 4. **Create indexes** - Add indexes on foreign keys and frequently queried columns
 5. **Use foreign keys** - When referencing other tables, use `FOREIGN KEY` constraints
 6. **Update timestamps** - Always update `updatedAt` when modifying records
@@ -316,4 +304,4 @@ After creating a model:
 1. Register it in the `DatabaseService` constructor
 2. Restart the application to run `initializeTables`
 3. Test CRUD operations to ensure everything works
-4. Verify migrations work by checking the database schema
+4. Inspect the SQLite schema (e.g. `.schema` in the sqlite CLI) if something looks wrong

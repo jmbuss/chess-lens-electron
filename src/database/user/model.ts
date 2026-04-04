@@ -21,35 +21,6 @@ export class UserModel implements BaseModel {
       )
     `)
 
-    // Migrate existing table: check for missing columns and add them
-    const tableInfo = db.pragma('table_info(users)') as Array<{ name: string }>
-    const existingColumns = new Set(tableInfo.map(col => col.name))
-
-    // Add firstName if missing (with default for existing rows)
-    if (!existingColumns.has('firstName')) {
-      db.exec('ALTER TABLE users ADD COLUMN firstName TEXT NOT NULL DEFAULT ""')
-    }
-
-    // Add lastName if missing (with default for existing rows)
-    if (!existingColumns.has('lastName')) {
-      db.exec('ALTER TABLE users ADD COLUMN lastName TEXT NOT NULL DEFAULT ""')
-    }
-
-    // Add email if missing (with default for existing rows)
-    if (!existingColumns.has('email')) {
-      db.exec('ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ""')
-    }
-
-    // Add createdAt if missing
-    if (!existingColumns.has('createdAt')) {
-      db.exec("ALTER TABLE users ADD COLUMN createdAt TEXT NOT NULL DEFAULT (datetime('now'))")
-    }
-
-    // Add updatedAt if missing
-    if (!existingColumns.has('updatedAt')) {
-      db.exec("ALTER TABLE users ADD COLUMN updatedAt TEXT NOT NULL DEFAULT (datetime('now'))")
-    }
-
     // Create index on email for faster lookups
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)

@@ -24,39 +24,6 @@ export class PlatformAccountModel implements BaseModel {
       )
     `)
 
-    // Migrate existing table: check for missing columns and add them
-    const tableInfo = db.pragma('table_info(platform_accounts)') as Array<{ name: string }>
-    const existingColumns = new Set(tableInfo.map(col => col.name))
-
-    // Add userId if missing (with default for existing rows)
-    if (!existingColumns.has('userId')) {
-      db.exec('ALTER TABLE platform_accounts ADD COLUMN userId INTEGER NOT NULL DEFAULT 0')
-    }
-
-    // Add platform if missing (with default for existing rows)
-    if (!existingColumns.has('platform')) {
-      db.exec("ALTER TABLE platform_accounts ADD COLUMN platform TEXT NOT NULL DEFAULT ''")
-    }
-
-    // Add platformUsername if missing (with default for existing rows)
-    if (!existingColumns.has('platformUsername')) {
-      db.exec("ALTER TABLE platform_accounts ADD COLUMN platformUsername TEXT NOT NULL DEFAULT ''")
-    }
-
-    // Add createdAt if missing
-    if (!existingColumns.has('createdAt')) {
-      db.exec(
-        "ALTER TABLE platform_accounts ADD COLUMN createdAt TEXT NOT NULL DEFAULT (datetime('now'))"
-      )
-    }
-
-    // Add updatedAt if missing
-    if (!existingColumns.has('updatedAt')) {
-      db.exec(
-        "ALTER TABLE platform_accounts ADD COLUMN updatedAt TEXT NOT NULL DEFAULT (datetime('now'))"
-      )
-    }
-
     // Create indexes for faster lookups
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_platform_accounts_userId ON platform_accounts(userId)

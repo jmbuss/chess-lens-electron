@@ -34,13 +34,6 @@ export class PositionAnalysisModel implements BaseModel {
       CREATE INDEX IF NOT EXISTS idx_pa_fen
         ON position_analysis(fen)
     `)
-
-    // Migration: add retry_count column for existing databases
-    const cols = db.pragma('table_info(position_analysis)') as { name: string }[]
-    const colNames = new Set(cols.map(c => c.name))
-    if (!colNames.has('retry_count')) {
-      db.exec('ALTER TABLE position_analysis ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0')
-    }
   }
 
   // ---------------------------------------------------------------------------

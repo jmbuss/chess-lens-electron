@@ -54,9 +54,6 @@ export class SyncModel implements BaseModel {
       )
     `)
 
-    // Migrate existing INTEGER date columns to TEXT (ISO8601)
-    SyncModel.migrateDateColumns(db)
-
     // Create index for efficient sync worker queries
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_sync_queue_status 
@@ -68,116 +65,6 @@ export class SyncModel implements BaseModel {
       CREATE INDEX IF NOT EXISTS idx_sync_metadata_user_platform 
         ON sync_metadata(username, platform)
     `)
-  }
-
-  /**
-   * Migrate INTEGER date columns to TEXT (ISO8601) for existing databases
-   */
-  private static migrateDateColumns(db: Database.Database): void {
-    // Run sync_queue migration first so it's not blocked if sync_metadata fails
-    const queueInfo = db.pragma('table_info(sync_queue)') as Array<{ name: string; type: string }>
-    const queueTypes = Object.fromEntries(queueInfo.map(c => [c.name, (c.type || '').toUpperCase()]))
-
-    // Migrate sync_queue if date columns are not TEXT (handles INTEGER, INT, empty, etc.)
-    const queueNeedsMigration =
-      (queueTypes.created_at || '') !== 'TEXT' ||
-      (queueTypes.last_attempt_at || '') !== 'TEXT' ||
-      (queueTypes.completed_at || '') !== 'TEXT'
-
-    if (queueNeedsMigration) {
-      db.exec(`
-        CREATE TABLE sync_queue_new (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          username TEXT NOT NULL,
-          platform TEXT NOT NULL,
-          month TEXT NOT NULL,
-          priority INTEGER NOT NULL,
-          status TEXT DEFAULT 'pending',
-          attempts INTEGER DEFAULT 0,
-          archive_url TEXT,
-          last_attempt_at TEXT,
-          completed_at TEXT,
-          error_message TEXT,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          UNIQUE(username, platform, month)
-        )
-      `)
-      const rows = db.prepare('SELECT * FROM sync_queue').all() as any[]
-      const insert = db.prepare(`
-        INSERT INTO sync_queue_new (id, username, platform, month, priority, status, attempts, archive_url, last_attempt_at, completed_at, error_message, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      for (const row of rows) {
-        insert.run(
-          row.id,
-          row.username,
-          row.platform,
-          row.month,
-          row.priority,
-          row.status,
-          row.attempts,
-          row.archive_url,
-          row.last_attempt_at != null ? new Date(row.last_attempt_at).toISOString() : null,
-          row.completed_at != null ? new Date(row.completed_at).toISOString() : null,
-          row.error_message,
-          row.created_at != null ? new Date(row.created_at).toISOString() : isoNow()
-        )
-      }
-      db.exec('DROP TABLE sync_queue')
-      db.exec('ALTER TABLE sync_queue_new RENAME TO sync_queue')
-      db.exec(`
-        CREATE INDEX IF NOT EXISTS idx_sync_queue_status 
-          ON sync_queue(username, platform, status, priority)
-      `)
-    }
-
-    const metadataInfo = db.pragma('table_info(sync_metadata)') as Array<{ name: string; type: string }>
-    const metadataTypes = Object.fromEntries(metadataInfo.map(c => [c.name, (c.type || '').toUpperCase()]))
-
-    // Migrate sync_metadata if date columns are not TEXT
-    const metadataNeedsMigration =
-      (metadataTypes.created_at || '') !== 'TEXT' ||
-      (metadataTypes.updated_at || '') !== 'TEXT' ||
-      (metadataTypes.last_synced_timestamp || '') !== 'TEXT'
-
-    if (metadataNeedsMigration) {
-      db.exec(`
-        CREATE TABLE sync_metadata_new (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          username TEXT NOT NULL,
-          platform TEXT NOT NULL,
-          last_synced_timestamp TEXT,
-          last_synced_month TEXT,
-          sync_status TEXT DEFAULT 'idle',
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-          UNIQUE(username, platform)
-        )
-      `)
-      const rows = db.prepare('SELECT * FROM sync_metadata').all() as any[]
-      const insert = db.prepare(`
-        INSERT INTO sync_metadata_new (id, username, platform, last_synced_timestamp, last_synced_month, sync_status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      for (const row of rows) {
-        insert.run(
-          row.id,
-          row.username,
-          row.platform,
-          row.last_synced_timestamp != null ? new Date(row.last_synced_timestamp).toISOString() : null,
-          row.last_synced_month,
-          row.sync_status,
-          new Date(row.created_at).toISOString(),
-          new Date(row.updated_at).toISOString()
-        )
-      }
-      db.exec('DROP TABLE sync_metadata')
-      db.exec('ALTER TABLE sync_metadata_new RENAME TO sync_metadata')
-      db.exec(`
-        CREATE INDEX IF NOT EXISTS idx_sync_metadata_user_platform 
-          ON sync_metadata(username, platform)
-      `)
-    }
   }
 
   // ==================== SYNC METADATA METHODS ====================
