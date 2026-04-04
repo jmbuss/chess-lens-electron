@@ -2,22 +2,20 @@
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { Button as UIButton } from '@/components/ui/button'
-import { ChevronLeft } from 'lucide-vue-next'
-
 import Chessboard from 'src/renderer/analysis/components/Chessboard.vue'
 import AnalysisDashboard from '../components/AnalysisDashboard.vue'
 import ChessPlayerBar from '../components/ChessPlayerBar.vue'
-import ChessMatchInfo from '../components/ChessMatchInfo.vue'
 import ChessPGNViewer from '../components/ChessPGNViewer.vue'
 import ChessAnalysisViewer from '../components/ChessAnalysisViewer.vue'
 import ChessMatchTopBar from '../components/ChessMatchTopBar.vue'
-import ChessMatchBottomBar from '../components/ChessMatchBottomBar.vue'
 import ChessGameConsole from '../components/ChessGameConsole.vue'
 import ChessMetricBars from '../components/ChessMetricBars.vue'
 import { useGameAnalysis } from '../composables/useGameAnalysis'
 import { provideChessGame } from '../composables/provideChessGame'
 import { provideGameAnalysis } from '../composables/provideGameAnalysis'
+import { ipcService } from 'src/ipc/renderer'
+import { serializePgn } from 'src/utils/chess/GameTree'
+import type { GameNode } from '../composables/types'
 
 const route = useRoute()
 
@@ -27,31 +25,30 @@ const {
   gameFsmState,
   isComplete,
   progress,
-  addVariation,
   analysisByFen,
-  analysisTree,
   navigateToPosition,
+  reanalyzeGame,
+  whiteStats,
+  blackStats,
+  radarData,
 } = useGameAnalysis(gameId)
 
-provideGameAnalysis(analysisByFen, analysisTree, progress, isComplete, gameFsmState)
+provideGameAnalysis(analysisByFen, progress, isComplete, gameFsmState, whiteStats, blackStats, radarData, reanalyzeGame)
 
-const { gameNavigator } = provideChessGame({
+const { gameNavigator, gameTree } = provideChessGame({
   gameId,
   onVariationPlayed: (parentFen, newNode) => {
     if (analysisByFen.value.has(newNode.data.fen)) return
     const d = newNode.data
-    addVariation({
-      parentFen,
-      fen: d.fen,
-      uciMove: d.from + d.to + (d.promotion ?? ''),
-      san: d.san,
-      from: d.from,
-      to: d.to,
-      piece: d.piece,
-      color: d.color,
-      captured: d.captured,
-      promotion: d.promotion,
-      moveNumber: d.moveNumber,
+
+    const root = gameTree.root.value
+    const headers = gameTree.headers.value
+    const pgn = root ? serializePgn(root as GameNode, headers) : ''
+
+    ipcService.send('pgn:mutate', {
+      gameId: gameId.value,
+      pgn,
+      currentFen: d.fen,
     })
   },
 })
@@ -95,14 +92,9 @@ watch(isComplete, (val) => {
   if (val) console.log('[AnalysisPage] Analysis complete! gameFsmState:', gameFsmState.value)
 })
 
-// Whenever the user navigates to a position, tell the game machine so it can
-// prioritize that node. The machine handles the STOP_AND_WAIT → IDLE →
-// POSITION_ANALYSIS cycle automatically. Fires regardless of isComplete so
-// the user can always focus any node for deeper analysis.
 watch(() => gameNavigator.currentFen.value, (fen) => {
   if (!fen) return
-  const node = analysisByFen.value.get(fen)
-  if (node) navigateToPosition(node.id, fen)
+  navigateToPosition(fen)
 })
 </script>
 

@@ -19,7 +19,7 @@ export class GameAnalysisScheduler {
     const cutoff = Date.now() - this.options.autoAnalyzeThresholdDays * 86_400_000
     if (new Date(payload.playedAt).getTime() < cutoff) return
 
-    GameAnalysisQueueModel.enqueue(this.db, payload.gameId, 3)
+    GameAnalysisQueueModel.enqueue(this.db, payload.gameId, 3, payload.playedAt)
     this.bus.emit('game:queue:updated', { reason: 'new_items' })
   }
 }

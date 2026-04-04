@@ -1,6 +1,11 @@
 import { IPCHandlerRegistry } from 'src/ipc/IPCHandlerRegistry'
 import Database from 'better-sqlite3'
-import { ChessSyncHandler, ChessGetByIdHandler, ChessGetAllHandler } from './handlers'
+import {
+  ChessSyncHandler,
+  ChessGetByIdHandler,
+  ChessGetAllHandler,
+  ChessGetGamesByPositionFenHandler,
+} from './handlers'
 
 export const registerChessHandlers = (
   ipcHandlerRegistry: IPCHandlerRegistry,
@@ -10,6 +15,7 @@ export const registerChessHandlers = (
     new ChessSyncHandler(db),
     new ChessGetByIdHandler(db),
     new ChessGetAllHandler(db),
+    new ChessGetGamesByPositionFenHandler(db),
   ]
   ipcHandlerRegistry.registerHandlers(...chessHandlers)
 }

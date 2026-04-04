@@ -1,4 +1,5 @@
 import { IPCHandlerRegistry } from 'src/ipc/IPCHandlerRegistry'
+import 'src/ipc/channels/chessGamesInvalidate'
 import Database from 'better-sqlite3'
 import type { EventBus } from 'src/events'
 import type { AnalysisOrchestrator } from 'src/services/analysis/AnalysisOrchestrator'
@@ -25,7 +26,7 @@ export const registerApi = ({
   positionQueueManager: PositionQueueManager
 }) => {
   registerUserHandlers(ipcHandlerRegistry, db)
-  registerPlatformHandlers(ipcHandlerRegistry, db)
+  registerPlatformHandlers(ipcHandlerRegistry, db, bus)
   registerChessHandlers(ipcHandlerRegistry, db)
   registerSyncHandlers(ipcHandlerRegistry, db)
   registerEngineHandlers(ipcHandlerRegistry)

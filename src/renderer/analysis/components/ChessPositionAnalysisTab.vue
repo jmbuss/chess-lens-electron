@@ -388,6 +388,7 @@ const plainCeilingProbs = computed((): number[] =>
           :uci="pred.move"
           :probability="augmentedFloorProbs[idx]"
           :eval-cp="pred.stockfishEval ?? null"
+          :eval-score="pred.stockfishScore ?? null"
           @hover-move="setHoveredMove"
         />
       </CollapsibleContent>
@@ -424,6 +425,7 @@ const plainCeilingProbs = computed((): number[] =>
           :uci="pred.move"
           :probability="augmentedCeilingProbs[idx]"
           :eval-cp="pred.stockfishEval ?? null"
+          :eval-score="pred.stockfishScore ?? null"
           @hover-move="setHoveredMove"
         />
       </CollapsibleContent>

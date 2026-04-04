@@ -13,7 +13,10 @@ export interface GameAnalysisQueueRow {
   white_stats_json: string | null
   black_stats_json: string | null
   eval_curve_json: string | null
-  state: string | null
+  node_results_json: string | null
+  radar_data_json: string | null
+  maia_floor_curve_json: string | null
+  maia_ceiling_curve_json: string | null
 }
 
 export interface GameAnalysisQueueAggregates {
@@ -22,6 +25,10 @@ export interface GameAnalysisQueueAggregates {
   white_stats_json: string
   black_stats_json: string
   eval_curve_json: string
+  node_results_json: string
+  radar_data_json: string
+  maia_floor_curve_json: string
+  maia_ceiling_curve_json: string
 }
 
 export interface PositionAnalysisRow {
@@ -30,6 +37,7 @@ export interface PositionAnalysisRow {
   config_hash: string
   priority: number
   status: AnalysisQueueStatus
+  retry_count: number
   queued_at: string
   result_json: string | null
   depth: number | null
@@ -40,4 +48,6 @@ export interface PositionAnalysisUpsertRow {
   fen: string
   config_hash: string
   priority: number
+  /** If omitted, `bulkUpsert` uses the current time for that row. */
+  queued_at?: string
 }

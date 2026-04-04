@@ -4,14 +4,12 @@ import type { EventBus } from 'src/events'
 import type { AnalysisOrchestrator } from 'src/services/analysis/AnalysisOrchestrator'
 import type { PositionQueueManager } from 'src/services/analysis/PositionQueueManager'
 import {
-  AnalyzeGameHandler,
   GetGameAnalysisHandler,
-  AddVariationHandler,
-  StudyPositionHandler,
-  StopAnalysisHandler,
   PrioritizeGameHandler,
   PrioritizePositionHandler,
+  GamePositionPrioritizeHandler,
   MutatePgnHandler,
+  ReanalyzeGameHandler,
 } from './handlers'
 
 export const registerAnalysisHandlers = (
@@ -22,14 +20,12 @@ export const registerAnalysisHandlers = (
   positionQueueManager: PositionQueueManager,
 ) => {
   const handlers = [
-    new AnalyzeGameHandler(db, bus),
     new GetGameAnalysisHandler(db),
-    new AddVariationHandler(db, orchestrator),
-    new StudyPositionHandler(orchestrator),
-    new StopAnalysisHandler(orchestrator),
     new PrioritizeGameHandler(db, bus, positionQueueManager),
     new PrioritizePositionHandler(db, bus),
+    new GamePositionPrioritizeHandler(db, bus),
     new MutatePgnHandler(db, bus),
+    new ReanalyzeGameHandler(db, bus),
   ]
   ipcHandlerRegistry.registerHandlers(...handlers)
 }

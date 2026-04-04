@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3'
 import type { EventBus, EventPayload } from '../../events'
 import { PositionAnalysisModel } from '../../database/analysis-queue'
 import { parseGameTree, collectAllFens } from '../../utils/chess/GameTree'
+import { isoAtMs } from '../../database/isoTimestamps'
 import type { AnalysisModeConfig } from '../../database/analysis/types'
 import { ANALYSIS_PRESETS } from '../../database/analysis/types'
 
@@ -36,18 +37,6 @@ export class PositionQueueManager {
    * Parse a PGN and upsert every FEN (mainline + variations) into
    * position_analysis. Called by the orchestrator when starting a game,
    * and by onPgnMutated when the user mutates the tree.
-   *
-   * `upsertPending` only ever raises urgency on conflict — it will not demote
-   * a row that is already at a higher urgency than the incoming priority.
-   *
-   * @param pgn           Full PGN string for the game.
-   * @param configHash    SHA-256 prefix of the serialized analysis config.
-   * @param currentFen    Optional FEN to set to priority 1 (user-focused).
-   * @param otherPriority Priority assigned to all FENs that are not currentFen.
-   *                      Pass 2 when the entire game is being user-focused so
-   *                      its positions sit above background games (priority 3).
-   *                      Defaults to 3 for background / orchestrator-initiated
-   *                      populate calls.
    */
   populateFromPgn(
     pgn: string,
@@ -58,10 +47,13 @@ export class PositionQueueManager {
     const { root } = parseGameTree(pgn)
     const allFens = collectAllFens(root)
 
+    const queueBaseMs = Date.now()
     const insertAll = this.db.transaction(() => {
-      for (const { fen } of allFens) {
+      for (let i = 0; i < allFens.length; i++) {
+        const { fen } = allFens[i]
         const priority = fen === currentFen ? 1 : otherPriority
-        PositionAnalysisModel.upsertPending(this.db, fen, configHash, priority)
+        const queuedAt = isoAtMs(queueBaseMs + i)
+        PositionAnalysisModel.upsertPending(this.db, fen, configHash, priority, queuedAt)
       }
     })
 
@@ -70,15 +62,24 @@ export class PositionQueueManager {
     this.bus.emit('position:queue:updated', { reason: 'new_items' })
   }
 
+  /**
+   * When PGN is mutated: upsert all FENs at priority 3, then re-prioritize
+   * using game:position:prioritize logic (currentFen → 1, in-PGN → 2, rest → 3).
+   */
   private onPgnMutated(payload: EventPayload<'pgn:mutated'>): void {
-    this.populateFromPgn(payload.pgn, this.getActiveConfigHash(), payload.currentFen)
+    const configHash = this.getActiveConfigHash()
+
+    // Upsert all FENs (INSERT OR IGNORE for new variation FENs)
+    this.populateFromPgn(payload.pgn, configHash, payload.currentFen)
+
+    // Re-prioritize: same logic as game:position:prioritize
+    const { root } = parseGameTree(payload.pgn)
+    const fenSet = new Set(collectAllFens(root).map(f => f.fen))
+    PositionAnalysisModel.reprioritizeForGame(this.db, fenSet, payload.currentFen, configHash)
+
+    this.bus.emit('position:queue:updated', { reason: 'priority_changed' })
   }
 
-  /**
-   * Returns the config hash for the default analysis preset ('fast').
-   * The orchestrator overrides this by passing the correct configHash
-   * directly to populateFromPgn when starting a game.
-   */
   private getActiveConfigHash(): string {
     const config: AnalysisModeConfig = {
       mode: 'pipeline',

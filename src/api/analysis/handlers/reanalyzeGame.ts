@@ -5,7 +5,7 @@ import { IpcRequest, IpcResponse } from 'src/ipc/types'
 import type { EventBus } from 'src/events'
 import { GameAnalysisQueueModel } from 'src/database/analysis-queue/GameAnalysisQueueModel'
 import { PositionAnalysisModel } from 'src/database/analysis-queue/PositionAnalysisModel'
-import { buildConfigHash, type PositionQueueManager } from 'src/services/analysis/PositionQueueManager'
+import { buildConfigHash } from 'src/services/analysis/PositionQueueManager'
 import { ChessGameModel } from 'src/database/chess/model'
 import { ANALYSIS_PRESETS } from 'src/database/analysis/types'
 import type { AnalysisModeConfig } from 'src/database/analysis/types'
@@ -16,34 +16,33 @@ import '../../../services/analysis/events'
 
 declare module 'src/ipc/handlers' {
   export interface IpcChannels {
-    'game:prioritize': {
-      request: { gameId: string; currentFen: string }
+    'game:reanalyze': {
+      request: { gameId: string }
       response: { success: boolean }
     }
   }
 }
 
-export class PrioritizeGameHandler extends IpcHandler {
-  static readonly channel = 'game:prioritize' as const
+export class ReanalyzeGameHandler extends IpcHandler {
+  static readonly channel = 'game:reanalyze' as const
 
   constructor(
     private db: Database.Database,
     private bus: EventBus,
-    private positionQueueManager: PositionQueueManager,
   ) {
     super()
   }
 
   async handle(
     _event: IpcMainEvent,
-    request: IpcRequest<{ gameId: string; currentFen: string }>,
+    request: IpcRequest<{ gameId: string }>,
   ): Promise<IpcResponse<{ success: boolean }>> {
     const p = request.params
-    if (!p?.gameId || !p.currentFen) {
-      return { success: false, error: 'gameId and currentFen are required' }
+    if (!p?.gameId) {
+      return { success: false, error: 'gameId is required' }
     }
 
-    const { gameId, currentFen } = p
+    const { gameId } = p
 
     const config: AnalysisModeConfig = {
       mode: 'pipeline',
@@ -52,31 +51,30 @@ export class PrioritizeGameHandler extends IpcHandler {
     }
     const configHash = buildConfigHash(config)
 
-    // 1. Demote all other games to background priority 3
-    GameAnalysisQueueModel.demoteOthers(this.db, gameId)
-
-    // 2. Load PGN and demote positions not in this game's FEN set
     const game = ChessGameModel.findById(this.db, gameId)
-    if (game?.pgn) {
+    if (!game) {
+      return { success: false, error: 'Game not found' }
+    }
+
+    // 1. Collect every FEN in the game's PGN
+    const fens: string[] = []
+    if (game.pgn) {
       const { root } = parseGameTree(game.pgn)
-      const fenSet = new Set(collectAllFens(root).map(f => f.fen))
-      PositionAnalysisModel.demotePositionsNotInFenSet(this.db, fenSet, configHash)
+      fens.push(...collectAllFens(root).map(f => f.fen))
     }
 
-    // 3. Enqueue game if not present, else bump to priority 1
-    const gameSortAt = game ? gamePlayedAtIso(game) : undefined
+    // 2. Reset all cached position results for this game so they re-run
+    PositionAnalysisModel.resetByFens(this.db, fens, configHash)
+
+    // 3. Reset the game queue row (clears aggregates, marks pending, priority 1)
+    const sortAt = gamePlayedAtIso(game)
     if (GameAnalysisQueueModel.exists(this.db, gameId)) {
-      GameAnalysisQueueModel.updatePriority(this.db, gameId, 1, gameSortAt)
+      GameAnalysisQueueModel.resetForReanalysis(this.db, gameId, sortAt)
     } else {
-      GameAnalysisQueueModel.enqueue(this.db, gameId, 1, gameSortAt)
+      GameAnalysisQueueModel.enqueue(this.db, gameId, 1, sortAt)
     }
 
-    // 4. Populate position_analysis rows for every FEN in this game's PGN
-    if (game?.pgn) {
-      this.positionQueueManager.populateFromPgn(game.pgn, configHash, currentFen, 2)
-    }
-
-    // 5. Notify downstream
+    // 4. Wake the orchestrator
     this.bus.emit('game:queue:updated', { reason: 'priority_changed', gameId })
 
     return { success: true, data: { success: true } }

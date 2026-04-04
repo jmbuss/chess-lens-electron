@@ -144,6 +144,32 @@ export interface MistakeProbability {
   blunderProb: number
 }
 
+// ==================== Player Stats ====================
+
+export interface PlayerStats {
+  accuracy: number | null
+  nagCounts: Partial<Record<NAG, number>>
+  bookMoveCount: number
+  totalMoves: number
+  bestMoveCount: number
+}
+
+// ==================== Node Result (game-context-dependent) ====================
+
+/**
+ * Per-node classification data that depends on game context (parent/child
+ * neighbor relationships). Stored in game_analysis_queue.node_results_json
+ * keyed by FEN. NOT stored in position_analysis because the same FEN may
+ * classify differently in different games.
+ */
+export interface NodeResult {
+  nag: NAG
+  isBestMove: boolean
+  criticalityScore: number
+  floorMistakeProb: MistakeProbability | null
+  ceilingMistakeProb: MistakeProbability | null
+}
+
 // ==================== Analysis Node ====================
 
 /**
@@ -226,26 +252,74 @@ export interface AnalysisNode {
   children: AnalysisNode[]
 }
 
-// ==================== Game Analysis Record ====================
+// ==================== Position Analysis (FEN-keyed) ====================
 
 /**
- * The full analysis state for a single game. Stored as a JSON blob in the
- * `game_analysis_queue` table under the `state` column.
+ * Per-position analysis data, keyed by FEN. Built from position_analysis rows
+ * and used in the renderer's analysisByFen map.
  */
-export interface GameAnalysisData {
+export interface PositionAnalysis {
+  fen: string
+  fsmState: NodeFsmState
+
+  // ── Phase classification ──
+  phaseScore?: number
+  openingScore?: number
+  middlegameScore?: number
+  endgameScore?: number
+  ecoCode?: string
+  isBookMove?: boolean
+
+  // ── Positional features ──
+  positionalFeatures?: PositionalFeatures
+
+  // ── Maia best-move evals (for human eval curves) ──
+  maiaFloorBestEval?: number | null
+  maiaCeilingBestEval?: number | null
+
+  engineResult?: {
+    evalCp: number | null
+    evalMate: number | null
+    wdl: WDL | null
+    bestMove: string
+    depth: number
+    lines: AnalysisLine[]
+  }
+  criticalityScore?: number
+  nag?: NAG
+  isBestMove?: boolean
+  maiaFloorResult?: MaiaAnalysisResult
+  maiaCeilingResult?: MaiaAnalysisResult
+  augmentedMaiaFloor?: AugmentedMaiaResult
+  augmentedMaiaCeiling?: AugmentedMaiaResult
+  floorMistakeProb?: MistakeProbability
+  ceilingMistakeProb?: MistakeProbability
+}
+
+// ==================== Game Analysis Response ====================
+
+/**
+ * Response shape for the analysis:getGameAnalysis API.
+ * Contains game-level aggregates pre-computed on main + a hydrated analysis
+ * tree and optional flat FEN map for gradual migration.
+ */
+export interface GameAnalysisResponse {
   gameId: string
-  pgnHash: string
-  schemaVersion: number
   gameFsmState: GameFSMState
-  evalCurve: number[]
-  /** Stockfish eval of the floor Maia model's top move at each mainline position. */
-  maiaFloorEvalCurve: number[]
-  /** Stockfish eval of the ceiling Maia model's top move at each mainline position. */
-  maiaCeilingEvalCurve: number[]
-  /** Root node of the analysis tree. Null if analysis has not started. */
+
+  // Game-level aggregates (pre-computed on main)
+  accuracy_white: number | null
+  accuracy_black: number | null
+  whiteStats: PlayerStats | null
+  blackStats: PlayerStats | null
+  evalCurve: number[] | null
+  maiaFloorEvalCurve: number[] | null
+  maiaCeilingEvalCurve: number[] | null
+  radarData: PositionalRadarData | null
+
+  /** Hydrated graph: PGN structure + per-node analysis. */
   tree: AnalysisNode | null
-  /** Next available ID for new nodes (e.g. user-played variations). */
-  nextId: number
-  /** The analysis preset used when this record was first created. */
-  preset: AnalysisPreset
+
+  /** Flat FEN → PositionAnalysis projection for existing component compatibility. */
+  positions: Record<string, PositionAnalysis>
 }

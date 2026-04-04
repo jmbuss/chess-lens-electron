@@ -1,24 +1,33 @@
 import { inject, provide, type ComputedRef } from 'vue'
-import type { AnalysisNode, GameFSMState } from 'src/database/analysis/types'
+import type { PositionAnalysis, GameFSMState, PlayerStats, PositionalRadarData } from 'src/database/analysis/types'
 
 const gameAnalysisSymbol = Symbol('gameAnalysis')
 
 interface GameAnalysisContext {
-  analysisByFen: ComputedRef<Map<string, AnalysisNode>>
-  analysisTree: ComputedRef<AnalysisNode | null>
+  analysisByFen: ComputedRef<Map<string, PositionAnalysis>>
   progress: ComputedRef<number>
   isComplete: ComputedRef<boolean>
   gameFsmState: ComputedRef<GameFSMState | null>
+  whiteStats: ComputedRef<PlayerStats | null>
+  blackStats: ComputedRef<PlayerStats | null>
+  radarData: ComputedRef<PositionalRadarData | null>
+  reanalyzeGame: () => Promise<void>
 }
 
 export const provideGameAnalysis = (
-  analysisByFen: ComputedRef<Map<string, AnalysisNode>>,
-  analysisTree: ComputedRef<AnalysisNode | null>,
+  analysisByFen: ComputedRef<Map<string, PositionAnalysis>>,
   progress: ComputedRef<number>,
   isComplete: ComputedRef<boolean>,
   gameFsmState: ComputedRef<GameFSMState | null>,
+  whiteStats: ComputedRef<PlayerStats | null>,
+  blackStats: ComputedRef<PlayerStats | null>,
+  radarData: ComputedRef<PositionalRadarData | null>,
+  reanalyzeGame: () => Promise<void>,
 ) => {
-  provide(gameAnalysisSymbol, { analysisByFen, analysisTree, progress, isComplete, gameFsmState } satisfies GameAnalysisContext)
+  provide(gameAnalysisSymbol, {
+    analysisByFen, progress, isComplete, gameFsmState,
+    whiteStats, blackStats, radarData, reanalyzeGame,
+  } satisfies GameAnalysisContext)
 }
 
 export const useInjectedGameAnalysis = (): GameAnalysisContext => {

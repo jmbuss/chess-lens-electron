@@ -175,23 +175,38 @@ export class StockfishClassicEvalService {
 
     this.send(`position fen ${fen}`)
     this.send('eval')
+    this.send('isready')
 
     const captured: string[] = []
 
     return new Promise<PositionalFeatures>((resolve) => {
       const timeout = setTimeout(() => {
         this.removeHandler(handler)
-        console.warn('[StockfishClassic] eval timed out, returning defaults')
+        console.warn('[StockfishClassic] eval timed out (process may be dead), returning defaults', fen)
         resolve(defaultFeatures())
       }, EVAL_TIMEOUT_MS)
 
       const handler: LineHandler = (line) => {
-        captured.push(line)
         if (line.startsWith('Final evaluation:')) {
+          captured.push(line)
           clearTimeout(timeout)
           this.removeHandler(handler)
           resolve(parseEvalOutput(captured))
+          return
         }
+
+        // readyok arrives after eval finishes — if we haven't seen
+        // Final evaluation by now, the position doesn't produce one
+        // (checkmate, stalemate, etc.). Return defaults immediately
+        // instead of waiting for the 5s timeout.
+        if (line === 'readyok') {
+          clearTimeout(timeout)
+          this.removeHandler(handler)
+          resolve(captured.length > 0 ? parseEvalOutput(captured) : defaultFeatures())
+          return
+        }
+
+        captured.push(line)
       }
 
       this.handlers.push(handler)

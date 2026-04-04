@@ -30,12 +30,12 @@ export class IPCHandlerRegistry {
         try {
           const response = await handler.handle(event, request)
 
-          if (request.responseChannel) {
+          if (request.responseChannel && !event.sender.isDestroyed()) {
             event.sender.send(request.responseChannel, response)
           }
         } catch (error) {
           console.error(`Error handling IPC channel "${channel}":`, error)
-          if (request.responseChannel) {
+          if (request.responseChannel && !event.sender.isDestroyed()) {
             event.sender.send(request.responseChannel, {
               success: false,
               error: error instanceof Error ? error.message : 'Unknown error',

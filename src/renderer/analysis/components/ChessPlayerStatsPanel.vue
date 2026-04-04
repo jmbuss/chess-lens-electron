@@ -2,13 +2,13 @@
 import { NAG } from 'src/services/engine/types'
 import { nagSymbol, nagBgClass } from 'src/utils/chess/nag'
 import ChessPlayerIcon from 'src/renderer/components/Chess/ChessPlayerIcon.vue'
-import type { PlayerStats } from '../composables/usePlayerStats'
+import type { PlayerStats } from 'src/database/analysis/types'
 
 const props = defineProps<{
   whiteUsername: string | null | undefined
   blackUsername: string | null | undefined
-  whiteStats: PlayerStats
-  blackStats: PlayerStats
+  whiteStats: PlayerStats | null
+  blackStats: PlayerStats | null
 }>()
 
 const NAG_ORDER: NAG[] = [
@@ -52,7 +52,7 @@ function accuracyBarClass(accuracy: number | null): string {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
+  <div v-if="whiteStats && blackStats" class="flex flex-col gap-3">
     <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Player Stats</h3>
 
     <!-- Header row: player names -->
@@ -145,5 +145,9 @@ function accuracyBarClass(accuracy: number | null): string {
       </template>
     </div>
 
+  </div>
+  <div v-else class="flex flex-col gap-3">
+    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">Player Stats</h3>
+    <span class="text-xs text-muted">Analyzing...</span>
   </div>
 </template>

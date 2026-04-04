@@ -4,8 +4,12 @@ export type {
   AnalysisPreset,
   AnalysisModeConfig,
   AnalysisNode,
-  GameAnalysisData,
+  PositionAnalysis,
+  GameAnalysisResponse,
   MaiaAnalysisResult,
+  PlayerStats,
+  NodeResult,
+  PositionalRadarData,
 } from './types'
 
 export { ANALYSIS_PRESETS } from './types'

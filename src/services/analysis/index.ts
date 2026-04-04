@@ -5,4 +5,4 @@ export { StockfishClassicEvalService, parseEvalOutput } from './StockfishClassic
 export { EvalMaiaMovesService } from './EvalMaiaMovesService'
 export { MoveClassificationService } from './MoveClassificationService'
 export { positionMachine } from './machines/positionMachine'
-export { gameMachine } from './machines/gameMachine'
+export { computeAndPersistAggregates, gameTreeToAnalysis } from './GameAggregateService'

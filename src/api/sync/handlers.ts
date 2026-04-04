@@ -8,6 +8,8 @@ import type Database from 'better-sqlite3'
 import { IpcHandler } from '../../ipc/IPCHandler'
 import type { IpcRequest, IpcResponse } from '../../ipc/types'
 import { SyncModel, type SyncPlatform, type SyncQueueItem } from '../../database/sync'
+import { ChessGameModel } from '../../database/chess'
+import type { ChessGameDataWithAnalysis } from '../../database/chess/types'
 import { syncWorkerManager, type SyncProgress } from '../../services/sync'
 
 // ==================== TYPE DEFINITIONS ====================
@@ -80,6 +82,9 @@ declare module '../../ipc/handlers' {
     }
     'sync:progress': {
       push: SyncProgress
+    }
+    'sync:games-added': {
+      push: ChessGameDataWithAnalysis[]
     }
   }
 }
@@ -197,23 +202,34 @@ export class SyncStartHandler extends IpcHandler {
           // Reset any interrupted in-progress items
           SyncModel.resetInProgressItems(this.db, username, platform)
 
-          // Start processing the queue
-          await worker.start((progress: SyncProgress) => {
-            event.sender.send('sync:progress', progress)
-          })
+          await worker.start(
+            (progress: SyncProgress) => {
+              if (!event.sender.isDestroyed()) {
+                event.sender.send('sync:progress', progress)
+              }
+            },
+            (gameIds: string[]) => {
+              if (!event.sender.isDestroyed()) {
+                const games = ChessGameModel.findByIdsWithAnalysisStatus(this.db, gameIds)
+                if (games.length > 0) {
+                  event.sender.send('sync:games-added', games)
+                }
+              }
+            },
+          )
         } catch (error) {
-          // Send error as progress update
-          event.sender.send('sync:progress', {
-            username,
-            platform,
-            status: 'idle',
-            totalMonths: 0,
-            completedMonths: 0,
-            currentMonthComplete: false,
-            error: error instanceof Error ? error.message : 'Sync failed',
-          } as SyncProgress)
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('sync:progress', {
+              username,
+              platform,
+              status: 'idle',
+              totalMonths: 0,
+              completedMonths: 0,
+              currentMonthComplete: false,
+              error: error instanceof Error ? error.message : 'Sync failed',
+            } as SyncProgress)
+          }
 
-          // Reset status on error
           SyncModel.updateSyncStatus(this.db, username, platform, 'idle')
         }
       })()
@@ -367,9 +383,21 @@ export class SyncResumeHandler extends IpcHandler {
       // Get or create worker and start it (fire-and-forget, don't await)
       const worker = syncWorkerManager.getOrCreate(this.db, username, platform)
 
-      void worker.start((progress: SyncProgress) => {
-        event.sender.send('sync:progress', progress)
-      })
+      void worker.start(
+        (progress: SyncProgress) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('sync:progress', progress)
+          }
+        },
+        (gameIds: string[]) => {
+          if (!event.sender.isDestroyed()) {
+            const games = ChessGameModel.findByIdsWithAnalysisStatus(this.db, gameIds)
+            if (games.length > 0) {
+              event.sender.send('sync:games-added', games)
+            }
+          }
+        },
+      )
 
       return {
         success: true,
@@ -464,9 +492,21 @@ export class SyncRetryFailedHandler extends IpcHandler {
       if (updatedCount > 0 && metadata?.syncStatus === 'idle') {
         // Restart sync to process the newly pending items (fire-and-forget)
         const worker = syncWorkerManager.getOrCreate(this.db, username, platform)
-        void worker.start((progress: SyncProgress) => {
-          event.sender.send('sync:progress', progress)
-        })
+        void worker.start(
+          (progress: SyncProgress) => {
+            if (!event.sender.isDestroyed()) {
+              event.sender.send('sync:progress', progress)
+            }
+          },
+          (gameIds: string[]) => {
+            if (!event.sender.isDestroyed()) {
+              const games = ChessGameModel.findByIdsWithAnalysisStatus(this.db, gameIds)
+              if (games.length > 0) {
+                event.sender.send('sync:games-added', games)
+              }
+            }
+          },
+        )
       }
 
       return {

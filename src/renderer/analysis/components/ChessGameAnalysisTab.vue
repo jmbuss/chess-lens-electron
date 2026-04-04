@@ -3,15 +3,52 @@ import { useInjectedChessGame } from '../composables/provideChessGame'
 import { useInjectedGameAnalysis } from '../composables/provideGameAnalysis'
 import ChessGameSummaryRadar from './ChessGameSummaryRadar.vue'
 import ChessPlayerStatsPanel from './ChessPlayerStatsPanel.vue'
-import { usePlayerStats } from '../composables/usePlayerStats'
-import { useGameSummaryRadar } from '../composables/useGameSummaryRadar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Info } from 'lucide-vue-next'
+import { computed } from 'vue'
 
-const { analysisTree } = useInjectedGameAnalysis()
+const { analysisByFen, whiteStats, blackStats, radarData } = useInjectedGameAnalysis()
 const { chessGame } = useInjectedChessGame()
-const { whiteStats, blackStats } = usePlayerStats(analysisTree)
-const summaryRadar = useGameSummaryRadar(analysisTree)
+
+const RADAR_LABELS = [
+  'Pawn Structure',
+  'Space',
+  'Mobility',
+  'King Safety',
+  'Threats',
+  'Imbalance',
+] as const
+
+const AXIS_KEYS = [
+  'pawnStructure',
+  'space',
+  'mobility',
+  'kingSafety',
+  'threats',
+  'imbalance',
+] as const
+
+const summaryRadar = computed(() => {
+  const data = radarData.value
+  if (!data) {
+    return {
+      white: [0, 0, 0, 0, 0, 0],
+      black: [0, 0, 0, 0, 0, 0],
+      labels: [...RADAR_LABELS],
+      whiteMaterial: 0,
+      blackMaterial: 0,
+      hasData: false,
+    }
+  }
+  return {
+    white: AXIS_KEYS.map(key => data.axes[key].white),
+    black: AXIS_KEYS.map(key => data.axes[key].black),
+    labels: [...RADAR_LABELS],
+    whiteMaterial: data.whiteMaterial,
+    blackMaterial: data.blackMaterial,
+    hasData: data.hasData,
+  }
+})
 </script>
 
 <template>

@@ -20,6 +20,7 @@ import './events'
 import type {
   SyncProgress,
   SyncProgressCallback,
+  GamesAddedCallback,
   MonthSyncResult,
   SyncWorkerConfig,
   SyncWorkerKey,
@@ -115,6 +116,7 @@ export class SyncWorker {
   private platform: SyncPlatform
   private config: SyncWorkerConfig
   private progressCallback?: SyncProgressCallback
+  private gamesAddedCallback?: GamesAddedCallback
   private isRunning: boolean = false
   private shouldStop: boolean = false
 
@@ -197,7 +199,7 @@ export class SyncWorker {
   /**
    * Start the sync worker
    */
-  async start(progressCallback?: SyncProgressCallback): Promise<void> {
+  async start(progressCallback?: SyncProgressCallback, gamesAddedCallback?: GamesAddedCallback): Promise<void> {
     if (this.isRunning) {
       console.log(`SyncWorker already running for ${this.username}@${this.platform}`)
       return
@@ -206,6 +208,7 @@ export class SyncWorker {
     this.isRunning = true
     this.shouldStop = false
     this.progressCallback = progressCallback
+    this.gamesAddedCallback = gamesAddedCallback
 
     try {
       // Reset any interrupted in-progress items
@@ -286,17 +289,18 @@ export class SyncWorker {
       if (result.success) {
         SyncModel.markCompleted(this.db, item.id)
       } else {
-        // Don't immediately mark as failed - allow retries
         if (item.attempts + 1 >= this.config.maxRetries) {
           SyncModel.markFailed(this.db, item.id, result.error || 'Unknown error')
         } else {
-          // Reset to pending for retry
           SyncModel.updateQueueItemStatus(this.db, item.id, 'pending', result.error)
         }
       }
 
-      // Send progress update
       this.sendProgress(undefined, result.gamesAdded)
+
+      if (result.newGameIds.length > 0 && this.gamesAddedCallback) {
+        this.gamesAddedCallback(result.newGameIds)
+      }
 
       // Delay before next request
       if (!this.shouldStop) {
@@ -314,6 +318,7 @@ export class SyncWorker {
       success: false,
       gamesFound: 0,
       gamesAdded: 0,
+      newGameIds: [],
     }
 
     try {
@@ -323,7 +328,6 @@ export class SyncWorker {
 
       const url = archiveUrl || buildArchiveUrl(this.username, month)
 
-      // Fetch games from Chess.com
       const response = await fetch(url, {
         headers: {
           'User-Agent': 'Chess-Lens-App/1.0',
@@ -333,7 +337,6 @@ export class SyncWorker {
 
       if (!response.ok) {
         if (response.status === 404) {
-          // No games for this month - that's ok
           result.success = true
           return result
         }
@@ -385,6 +388,7 @@ export class SyncWorker {
           })
 
           result.gamesAdded = ChessGameModel.createBatch(this.db, enrichedGames)
+          result.newGameIds = enrichedGames.map(g => g.id)
 
           for (const game of enrichedGames) {
             if (game.positions.length > 0) {
@@ -396,13 +400,19 @@ export class SyncWorker {
           }
 
           for (const game of enrichedGames) {
-            const startTime = game.startTime
-            const playedAt =
-              startTime == null
-                ? new Date().toISOString()
-                : typeof startTime === 'string'
-                  ? startTime
-                  : startTime.toISOString()
+            const endIso =
+              game.endTime == null
+                ? null
+                : typeof game.endTime === 'string'
+                  ? game.endTime
+                  : game.endTime.toISOString()
+            const startIso =
+              game.startTime == null
+                ? null
+                : typeof game.startTime === 'string'
+                  ? game.startTime
+                  : game.startTime.toISOString()
+            const playedAt = endIso ?? startIso ?? new Date().toISOString()
 
             eventBus.emit('game:synced', {
               gameId: game.id,

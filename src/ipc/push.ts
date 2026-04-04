@@ -10,5 +10,6 @@ export function pushToRenderer<K extends PushChannelName>(
   channel: K,
   payload: PushPayload<K>,
 ): void {
+  if (webContents.isDestroyed()) return
   webContents.send(channel as string, payload)
 }

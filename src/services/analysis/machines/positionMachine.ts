@@ -1,10 +1,9 @@
 import { setup, assign, fromPromise } from 'xstate'
-import type { NAG, AnalysisLine, WDL } from 'src/services/engine/types'
+import type { AnalysisLine, WDL } from 'src/services/engine/types'
 import type {
   AnalysisModeConfig,
   MaiaAnalysisResult,
   AugmentedMaiaResult,
-  MistakeProbability,
   PositionalFeatures,
 } from 'src/database/analysis/types'
 import type { PhaseResult } from 'src/services/analysis/PhaseClassificationService'
@@ -30,14 +29,7 @@ export interface MaiaPairResult {
 export interface PositionInput {
   fen: string
   ply: number
-  /** The UCI move that was played to reach this position. Null for the starting position. */
-  uciMove: string | null
-  /** Color that made this move: 'w' or 'b'. Null for the root position. */
-  color: 'w' | 'b' | null
   config: AnalysisModeConfig
-  evalCurve: number[]
-  /** Engine result from the previous position, needed for classification. */
-  prevEngineResult: EngineResult | null
 }
 
 export interface PositionOutput {
@@ -46,12 +38,6 @@ export interface PositionOutput {
   maiaCeilingResult: MaiaAnalysisResult | null
   augmentedMaiaFloor: AugmentedMaiaResult | null
   augmentedMaiaCeiling: AugmentedMaiaResult | null
-  nag: NAG
-  isBestMove: boolean
-  moveAccuracy: number | null
-  criticalityScore: number | null
-  floorMistakeProb: MistakeProbability | null
-  ceilingMistakeProb: MistakeProbability | null
   phaseResult: PhaseResult | null
   positionalFeatures: PositionalFeatures | null
   maiaFloorBestEval: number | null
@@ -75,14 +61,6 @@ interface PositionContext extends PositionInput {
   // EVAL_MAIA_MOVES
   augmentedMaiaFloor: AugmentedMaiaResult | null
   augmentedMaiaCeiling: AugmentedMaiaResult | null
-
-  // CLASSIFY
-  nag: NAG | null
-  isBestMove: boolean | null
-  moveAccuracy: number | null
-  criticalityScore: number | null
-  floorMistakeProb: MistakeProbability | null
-  ceilingMistakeProb: MistakeProbability | null
 }
 
 // ==================== Actor Input Types ====================
@@ -110,25 +88,6 @@ export interface EvalMaiaMovesResult {
   augmentedCeiling: AugmentedMaiaResult | null
 }
 
-export interface ClassifyPositionInput {
-  prevEngineResult: EngineResult | null
-  engineResult: EngineResult
-  augmentedMaiaFloor: AugmentedMaiaResult | null
-  augmentedMaiaCeiling: AugmentedMaiaResult | null
-  uciMove: string | null
-  color: 'w' | 'b' | null
-  isBookMove: boolean
-}
-
-export interface ClassifyPositionResult {
-  nag: NAG
-  isBestMove: boolean
-  moveAccuracy: number | null
-  criticalityScore: number
-  floorMistakeProb: MistakeProbability | null
-  ceilingMistakeProb: MistakeProbability | null
-}
-
 export interface ComputePositionalDataInput {
   fen: string
   ply: number
@@ -152,6 +111,7 @@ export const positionMachine = setup({
     input: {} as PositionInput,
     context: {} as PositionContext,
     output: {} as PositionOutput,
+    events: {} as { type: 'STOP' },
   },
   actors: {
     loadPositionCache: fromPromise<PositionOutput | null, CacheProbeInput>(async () => {
@@ -166,11 +126,11 @@ export const positionMachine = setup({
     evalMaiaMoves: fromPromise<EvalMaiaMovesResult, EvalMaiaMovesInput>(async () => {
       throw new Error('evalMaiaMoves actor not provided — use .provide()')
     }),
-    classifyPosition: fromPromise<ClassifyPositionResult, ClassifyPositionInput>(async () => {
-      throw new Error('classifyPosition actor not provided — use .provide()')
-    }),
     computePositionalData: fromPromise<ComputePositionalDataResult, ComputePositionalDataInput>(async () => {
       throw new Error('computePositionalData actor not provided — use .provide()')
+    }),
+    stopEngines: fromPromise<void>(async () => {
+      throw new Error('stopEngines actor not provided — use .provide()')
     }),
   },
   guards: {
@@ -188,12 +148,6 @@ export const positionMachine = setup({
     positionalFeatures: null,
     augmentedMaiaFloor: null,
     augmentedMaiaCeiling: null,
-    nag: null,
-    isBestMove: null,
-    moveAccuracy: null,
-    criticalityScore: null,
-    floorMistakeProb: null,
-    ceilingMistakeProb: null,
   }),
   output: ({ context }) => ({
     engineResult: context.engineResult,
@@ -201,23 +155,17 @@ export const positionMachine = setup({
     maiaCeilingResult: context.maiaCeilingResult,
     augmentedMaiaFloor: context.augmentedMaiaFloor,
     augmentedMaiaCeiling: context.augmentedMaiaCeiling,
-    nag: context.nag!,
-    isBestMove: context.isBestMove!,
-    moveAccuracy: context.moveAccuracy,
-    criticalityScore: context.criticalityScore,
-    floorMistakeProb: context.floorMistakeProb,
-    ceilingMistakeProb: context.ceilingMistakeProb,
     phaseResult: context.phaseResult,
     positionalFeatures: context.positionalFeatures,
     maiaFloorBestEval: context.augmentedMaiaFloor?.predictions[0]?.stockfishEval ?? null,
     maiaCeilingBestEval: context.augmentedMaiaCeiling?.predictions[0]?.stockfishEval ?? null,
   }),
+
+  on: {
+    STOP: { target: '.STOP_AND_WAIT' },
+  },
+
   states: {
-    /**
-     * Step 0: Check position_analysis cache before running engines.
-     * The cache loader is injected by GameCoordinator so the machine
-     * has no direct dependency on SQLite.
-     */
     CACHE_PROBE: {
       invoke: {
         src: 'loadPositionCache',
@@ -239,12 +187,6 @@ export const positionMachine = setup({
                 positionalFeatures: cached.positionalFeatures,
                 augmentedMaiaFloor: cached.augmentedMaiaFloor,
                 augmentedMaiaCeiling: cached.augmentedMaiaCeiling,
-                nag: cached.nag,
-                isBestMove: cached.isBestMove,
-                moveAccuracy: cached.moveAccuracy,
-                criticalityScore: cached.criticalityScore,
-                floorMistakeProb: cached.floorMistakeProb,
-                ceilingMistakeProb: cached.ceilingMistakeProb,
               }
             }),
           },
@@ -254,11 +196,6 @@ export const positionMachine = setup({
       },
     },
 
-    /**
-     * Step 1: Parallel data gathering.
-     * Stockfish finds top N lines while Maia predicts human moves.
-     * Both branches are non-fatal — errors land in their DONE state.
-     */
     GATHERING: {
       type: 'parallel',
       states: {
@@ -304,11 +241,6 @@ export const positionMachine = setup({
           },
         },
 
-        /**
-         * Positional data gathering: phase classification + structural features.
-         * Pure FEN-based computation — runs in parallel with Stockfish and Maia
-         * at effectively zero latency cost.
-         */
         FEATURES: {
           initial: 'RUNNING',
           states: {
@@ -333,16 +265,11 @@ export const positionMachine = setup({
       onDone: 'EVAL_MAIA_MOVES',
     },
 
-    /**
-     * Step 2: Cross-reference Maia predictions with Stockfish lines.
-     * Runs a second Stockfish pass for any Maia moves not in the top N.
-     * Skipped if engine analysis failed (no engine result to cross-reference).
-     */
     EVAL_MAIA_MOVES: {
       always: [
         {
           guard: ({ context }) => context.engineResult == null,
-          target: 'CLASSIFY',
+          target: 'COMPLETE',
         },
       ],
       invoke: {
@@ -355,53 +282,31 @@ export const positionMachine = setup({
           config: context.config,
         }),
         onDone: {
-          target: 'CLASSIFY',
+          target: 'COMPLETE',
           actions: assign(({ event }) => ({
             augmentedMaiaFloor: event.output.augmentedFloor,
             augmentedMaiaCeiling: event.output.augmentedCeiling,
           })),
         },
-        onError: 'CLASSIFY',
+        onError: 'COMPLETE',
       },
     },
 
     /**
-     * Step 3: Derive NAG, mistake probabilities.
-     * Pure computation — no engine calls.
-     * Skipped if engine analysis failed.
+     * Engine drain: entered via the STOP event from any active state.
+     * XState auto-cancels in-flight actors on exit; stopEngines sends UCI
+     * `stop` and waits for `bestmove` so engines are clean for the next search.
      */
-    CLASSIFY: {
-      always: [
-        {
-          guard: ({ context }) => context.engineResult == null,
-          target: 'COMPLETE',
-        },
-      ],
+    STOP_AND_WAIT: {
       invoke: {
-        src: 'classifyPosition',
-        input: ({ context }) => ({
-          prevEngineResult: context.prevEngineResult,
-          engineResult: context.engineResult!,
-          augmentedMaiaFloor: context.augmentedMaiaFloor,
-          augmentedMaiaCeiling: context.augmentedMaiaCeiling,
-          uciMove: context.uciMove,
-          color: context.color,
-          isBookMove: context.phaseResult?.ecoMatch != null,
-        }),
-        onDone: {
-          target: 'COMPLETE',
-          actions: assign(({ event }) => ({
-            nag: event.output.nag,
-            isBestMove: event.output.isBestMove,
-            moveAccuracy: event.output.moveAccuracy,
-            criticalityScore: event.output.criticalityScore,
-            floorMistakeProb: event.output.floorMistakeProb,
-            ceilingMistakeProb: event.output.ceilingMistakeProb,
-          })),
-        },
-        onError: 'COMPLETE',
+        src: 'stopEngines',
+        onDone: 'STOPPED',
+        onError: 'STOPPED',
       },
     },
+
+    /** Coordinator awaits this via toPromise(actor). */
+    STOPPED: { type: 'final' },
 
     COMPLETE: { type: 'final' },
   },

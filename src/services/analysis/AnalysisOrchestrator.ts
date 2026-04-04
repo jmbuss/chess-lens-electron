@@ -2,6 +2,8 @@ import type Database from 'better-sqlite3'
 import type { WebContents } from 'electron'
 
 import type { EventBus } from '../../events'
+import { pushToRenderer } from '../../ipc/push'
+import 'src/ipc/channels/chessGamesInvalidate'
 import { GameAnalysisQueueModel } from '../../database/analysis-queue'
 import type { GameAnalysisQueueRow } from '../../database/analysis-queue'
 import { ChessGameModel } from '../../database/chess/model'
@@ -28,6 +30,7 @@ export class AnalysisOrchestrator {
   private activeCoordinator: GameCoordinator | null = null
   private activeGameId: string | null = null
   private activePriority: number = 0
+  private newItemsInvalidateTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     private db: Database.Database,
@@ -36,14 +39,17 @@ export class AnalysisOrchestrator {
     private webContents: WebContents,
     private userRating: number = 1500,
   ) {
-    // Reset any rows that were left in_progress from a previous crash/shutdown
-    // so they re-enter the queue and get analyzed on this run.
     GameAnalysisQueueModel.resetStaleLocks(this.db)
 
     this.bus.on('app:started', () => void this.evaluateQueue())
     this.bus.on('game:queue:updated', (p) => {
       if (p.reason === 'priority_changed' && p.gameId) {
         console.log(`[AnalysisOrchestrator] Game marked high priority: ${p.gameId}`)
+      }
+      if (p.reason === 'priority_changed') {
+        this.pushChessGamesInvalidate()
+      } else if (p.reason === 'new_items') {
+        this.scheduleChessGamesInvalidateForNewItems()
       }
       void this.evaluateQueue(p.gameId)
     })
@@ -54,10 +60,6 @@ export class AnalysisOrchestrator {
   /**
    * Look at the head of the pending queue and decide whether to start a new
    * game, preempt the current one, or do nothing.
-   *
-   * @param prioritizedGameId — when set, the user explicitly prioritized this
-   *   game. If a different game is active, preempt it regardless of numeric
-   *   priority so the user's intent is honored immediately.
    */
   private async evaluateQueue(prioritizedGameId?: string): Promise<void> {
     const head = GameAnalysisQueueModel.fetchHead(this.db)
@@ -68,11 +70,8 @@ export class AnalysisOrchestrator {
       return
     }
 
-    // Already processing this game — nothing to do.
     if (head.game_id === this.activeGameId) return
 
-    // Force preemption when the user explicitly prioritized a different game,
-    // even if numeric priorities are equal (both at 1).
     const forcePreempt =
       prioritizedGameId != null &&
       prioritizedGameId !== this.activeGameId &&
@@ -92,12 +91,9 @@ export class AnalysisOrchestrator {
     }
   }
 
-  /**
-   * Start analyzing a game from the queue. Populates the position queue,
-   * creates a GameCoordinator, and begins analysis.
-   */
   private async startGame(queueItem: GameAnalysisQueueRow): Promise<void> {
     GameAnalysisQueueModel.markInProgress(this.db, queueItem.game_id)
+    this.pushChessGamesInvalidate()
 
     const game = ChessGameModel.findById(this.db, queueItem.game_id)
     if (!game) {
@@ -114,15 +110,11 @@ export class AnalysisOrchestrator {
 
     const coordinator = new GameCoordinator(
       this.db,
-      this.webContents as any,
+      this.webContents,
       game.id,
-      game.pgn,
-      'fast',
       this.userRating,
       this.bus,
     )
-
-    coordinator.initialize()
 
     this.activeCoordinator = coordinator
     this.activeGameId = queueItem.game_id
@@ -137,12 +129,10 @@ export class AnalysisOrchestrator {
     })
   }
 
-  /**
-   * Called when a game's analysis finishes. Tears down the active coordinator
-   * and picks up the next pending game from the queue.
-   */
   private async onGameComplete(gameId: string): Promise<void> {
     if (this.activeGameId !== gameId) return
+
+    this.pushChessGamesInvalidate()
 
     console.log(`[AnalysisOrchestrator] Game ${gameId} analysis complete, moving to next`)
     if (this.activeCoordinator) {
@@ -154,30 +144,21 @@ export class AnalysisOrchestrator {
   }
 
   /**
-   * Forward position priority changes to the active coordinator so the
-   * game machine can re-evaluate which position to analyze next.
+   * Forward position priority changes to the active coordinator so it can
+   * preempt the current position if the queue head changed.
    */
   private forwardPositionUpdate(payload: { reason: string }): void {
     if (!this.activeCoordinator) return
     if (payload.reason === 'priority_changed') {
-      this.activeCoordinator.sendPriorityChanged()
+      void this.activeCoordinator.onPriorityChanged()
     }
   }
 
-  /**
-   * Returns the active coordinator for a game ID, if one is running.
-   * Used by IPC handlers that need to send navigate/insertNode events.
-   */
   getActiveCoordinator(gameId: string): GameCoordinator | null {
     if (this.activeGameId === gameId) return this.activeCoordinator
     return null
   }
 
-  /**
-   * Stop the active coordinator for a specific game. If the given gameId is
-   * not currently active, this is a no-op. After stopping, re-evaluates the
-   * queue so the next pending game starts automatically.
-   */
   async stopGame(gameId: string): Promise<void> {
     if (this.activeGameId !== gameId) return
     if (this.activeCoordinator) {
@@ -188,9 +169,6 @@ export class AnalysisOrchestrator {
     }
   }
 
-  /**
-   * Stop the currently active coordinator (if any) and clear state.
-   */
   async stopActive(): Promise<void> {
     if (this.activeCoordinator) {
       await this.activeCoordinator.stop()
@@ -199,7 +177,22 @@ export class AnalysisOrchestrator {
     }
   }
 
-  private getActiveConfigHash(): string {
+  private pushChessGamesInvalidate(): void {
+    pushToRenderer(this.webContents, 'chess-games:invalidate', {})
+  }
+
+  /** Batches rapid `new_items` events (e.g. many games synced) into one list refresh. */
+  private scheduleChessGamesInvalidateForNewItems(): void {
+    if (this.newItemsInvalidateTimer != null) {
+      clearTimeout(this.newItemsInvalidateTimer)
+    }
+    this.newItemsInvalidateTimer = setTimeout(() => {
+      this.newItemsInvalidateTimer = null
+      this.pushChessGamesInvalidate()
+    }, 400)
+  }
+
+  getActiveConfigHash(): string {
     const config: AnalysisModeConfig = {
       mode: 'pipeline',
       preset: 'fast',

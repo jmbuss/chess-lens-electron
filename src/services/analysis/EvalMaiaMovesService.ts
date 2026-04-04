@@ -114,8 +114,16 @@ export class EvalMaiaMovesService {
   ): AugmentedMaiaResult {
     const predictions: AugmentedHumanMovePrediction[] = maiaResult.predictions.map(p => {
       const score = scoreMap.get(p.move) ?? null
-      // Scores in scoreMap are already normalized to white's perspective.
-      const stockfishEval = score?.type === 'cp' ? score.value : null
+      console.log('score', score)
+      // Scores are already normalized to white's perspective.
+      // For mate scores, use ±100_000 cp as a sentinel so the chart's
+      // ÷100 + clamp(±10) pipeline treats them identically to evalMate.
+      let stockfishEval: number | null = null
+      if (score?.type === 'cp') {
+        stockfishEval = score.value
+      } else if (score?.type === 'mate') {
+        stockfishEval = score.value > 0 ? 100_000 : -100_000
+      }
       return {
         ...p,
         stockfishEval,

@@ -215,6 +215,26 @@ export class ChessGameModel implements BaseModel {
     }))
   }
 
+  static findByIdsWithAnalysisStatus(
+    db: Database.Database,
+    ids: string[],
+  ): ChessGameDataWithAnalysis[] {
+    if (ids.length === 0) return []
+    const placeholders = ids.map(() => '?').join(', ')
+    const rows = db.prepare(`
+      SELECT cg.*,
+             gaq.status AS analysis_queue_status
+      FROM chess_games cg
+      LEFT JOIN game_analysis_queue gaq ON cg.id = gaq.game_id
+      WHERE cg.id IN (${placeholders})
+      ORDER BY cg.startTime DESC
+    `).all(...ids) as any[]
+    return rows.map(row => ({
+      ...this.parseRow(row),
+      analysisStatus: ChessGameModel.analysisStatusFromQueue(row.analysis_queue_status),
+    }))
+  }
+
   static findByPlatform(db: Database.Database, platform: string): ChessGameData[] {
     return (
       db

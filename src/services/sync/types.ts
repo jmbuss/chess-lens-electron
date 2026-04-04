@@ -23,6 +23,12 @@ export interface SyncProgress {
 export type SyncProgressCallback = (progress: SyncProgress) => void
 
 /**
+ * Callback fired after a month sync inserts new games.
+ * Receives the IDs of the newly added games.
+ */
+export type GamesAddedCallback = (gameIds: string[]) => void
+
+/**
  * Result of a single month sync operation
  */
 export interface MonthSyncResult {
@@ -30,6 +36,7 @@ export interface MonthSyncResult {
   success: boolean
   gamesFound: number
   gamesAdded: number
+  newGameIds: string[]
   error?: string
 }
 

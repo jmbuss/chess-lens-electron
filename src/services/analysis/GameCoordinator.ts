@@ -1,6 +1,5 @@
-import crypto from 'crypto'
-import { createActor, fromPromise } from 'xstate'
-import type { IpcMainEvent } from 'electron'
+import { createActor, fromPromise, toPromise } from 'xstate'
+import type { WebContents } from 'electron'
 import type Database from 'better-sqlite3'
 
 import { getStockfish, getMaia, getStockfishClassicBinaryPath } from 'src/services/engine/manager'
@@ -11,40 +10,21 @@ import { HumanMoveService } from 'src/services/engine/analysis/HumanMoveService'
 import type { HumanMovePrediction } from 'src/services/engine/types'
 import { PositionAnalysisModel } from 'src/database/analysis-queue'
 import { GameAnalysisQueueModel } from 'src/database/analysis-queue'
-import type {
-  AnalysisPreset,
-  AnalysisModeConfig,
-  AnalysisNode,
-  GameAnalysisData,
-  GameFSMState,
-} from 'src/database/analysis/types'
+import type { AnalysisModeConfig } from 'src/database/analysis/types'
 import { ANALYSIS_PRESETS } from 'src/database/analysis/types'
 import type { EventBus } from '../../events'
 
-import {
-  gameMachine,
-  setNodeResult,
-  findNodeById,
-  buildEvalCurveFromMainLine,
-  buildMaiaFloorEvalCurve,
-  buildMaiaCeilingEvalCurve,
-  computePlayerStats,
-  type GameContext,
-  type GameInput,
-} from './machines/gameMachine'
 import { positionMachine } from './machines/positionMachine'
 import type { EngineResult, PositionOutput } from './machines/positionMachine'
-import { parseGameTree, STARTING_FEN } from 'src/utils/chess/GameTree'
-import type { GameChildNode, GameNode } from 'src/utils/chess/types'
+import { parseGameTree, collectAllFens } from 'src/utils/chess/GameTree'
+import { ChessGameModel } from 'src/database/chess/model'
 
 import { PhaseClassificationService } from './PhaseClassificationService'
 import { PositionalFeaturesService } from './PositionalFeaturesService'
 import { EvalMaiaMovesService } from './EvalMaiaMovesService'
-import { MoveClassificationService } from './MoveClassificationService'
 import { buildConfigHash } from './PositionQueueManager'
+import { computeAndPersistAggregates } from './GameAggregateService'
 import './events'
-
-const SCHEMA_VERSION = 5
 
 // ==================== Maia Rating Helpers ====================
 
@@ -58,147 +38,57 @@ function getMaiaCeilingRating(userRating: number): MaiaRating {
   return ceiling ?? VALID_MAIA_RATINGS[VALID_MAIA_RATINGS.length - 1]
 }
 
-// ==================== GameTree → AnalysisNode conversion ====================
-
-function gameTreeToAnalysis(pgn: string): { tree: AnalysisNode; nextId: number } {
-  const { root: gameTreeRoot } = parseGameTree(pgn)
-  let idCounter = 0
-
-  const treeRoot: AnalysisNode = {
-    id: idCounter++,
-    ply: 0,
-    fen: STARTING_FEN,
-    uciMove: null,
-    fsmState: 'UNANALYZED',
-    children: [],
-  }
-
-  function convert(gameChild: GameChildNode, ply: number): AnalysisNode {
-    const d = gameChild.data
-    const node: AnalysisNode = {
-      id: idCounter++,
-      ply,
-      fen: d.fen,
-      uciMove: d.from + d.to + (d.promotion ?? ''),
-      san: d.san,
-      from: d.from,
-      to: d.to,
-      piece: d.piece,
-      color: d.color,
-      captured: d.captured,
-      promotion: d.promotion,
-      moveNumber: d.moveNumber,
-      fsmState: 'UNANALYZED',
-      children: [],
-    }
-    node.children = gameChild.children.map(child => convert(child, ply + 1))
-    return node
-  }
-
-  treeRoot.children = gameTreeRoot.children.map(child => convert(child, 1))
-  return { tree: treeRoot, nextId: idCounter }
-}
-
-// ==================== Helpers ====================
-
-function hashPgn(pgn: string): string {
-  return crypto.createHash('sha256').update(pgn).digest('hex')
-}
-
-function buildConfig(preset: AnalysisPreset, userRating?: number): AnalysisModeConfig {
-  return { mode: 'pipeline', preset, ...ANALYSIS_PRESETS[preset], userRating }
+function buildConfig(userRating?: number): AnalysisModeConfig {
+  return { mode: 'pipeline', preset: 'fast', ...ANALYSIS_PRESETS.fast, userRating }
 }
 
 // ==================== Coordinator ====================
 
+/**
+ * Queue-driven worker that processes positions for a specific game.
+ * Lifecycle: initialize() → start() → [position loop] → complete / preempted.
+ *
+ * No in-memory game tree. No navigate/insertNode. PGN in the DB is the
+ * single source of truth for which FENs belong to this game. The queue
+ * (position_analysis priorities) drives which FEN runs next.
+ */
 export class GameCoordinator {
-  private gameInput: GameInput | null = null
   private configHash: string
+  private stopped = false
 
-  // Engine references held for the lifetime of this coordinator so that
-  // stopEngines can drain all three in STOP_AND_WAIT.
   private stockfish: UCIEngine | null = null
   private maiaFloorEngine: UCIEngine | null = null
   private maiaCeilingEngine: UCIEngine | null = null
   private featuresService: PositionalFeaturesService | null = null
 
+  private activePositionActor: ReturnType<typeof createActor<typeof positionMachine>> | null = null
+  private inFlightFen: string | null = null
+  private inFlightId: number | null = null
+
+  private priorityChangedWhileRunning = false
+
   constructor(
     private db: Database.Database,
-    private sender: IpcMainEvent['sender'],
+    private webContents: WebContents,
     private gameId: string,
-    private pgn: string,
-    private backgroundPreset: AnalysisPreset,
     private userRating: number = 1500,
     private bus?: EventBus,
   ) {
-    const backgroundConfig = buildConfig(backgroundPreset, userRating)
-    this.configHash = buildConfigHash(backgroundConfig)
+    const config = buildConfig(userRating)
+    this.configHash = buildConfigHash(config)
+  }
+
+  get activeConfigHash(): string {
+    return this.configHash
   }
 
   /**
-   * Load-or-create the analysis record and build the GameInput. Must be called
-   * before start(). Synchronous — no engine access yet.
-   *
-   * On resume the machine starts at IDLE with currentNodeId = root. IDLE's
-   * BACKGROUND_PROCESSING guard finds the first UNANALYZED node via DFS, so
-   * no cursor-scanning is needed here.
-   *
-   * After loading/creating the tree, hydrates nodes from the position_analysis
-   * cache so previously-analyzed positions start as NAG_COMPLETE without
-   * requiring engine work.
-   */
-  initialize(): void {
-    const pgnHash = hashPgn(this.pgn)
-    const existing = GameAnalysisQueueModel.findState(this.db, this.gameId)
-    const backgroundConfig = buildConfig('fast', this.userRating)
-    const focusConfig = buildConfig('fast', this.userRating)
-
-    let data: GameAnalysisData & { tree: AnalysisNode }
-
-    if (existing && existing.pgnHash === pgnHash && existing.tree) {
-      data = existing as GameAnalysisData & { tree: AnalysisNode }
-    } else {
-      const { tree, nextId } = gameTreeToAnalysis(this.pgn)
-      data = {
-        gameId: this.gameId,
-        pgnHash,
-        schemaVersion: SCHEMA_VERSION,
-        gameFsmState: 'UNANALYZED',
-        evalCurve: [],
-        maiaFloorEvalCurve: [],
-        maiaCeilingEvalCurve: [],
-        tree,
-        nextId,
-        preset: this.backgroundPreset,
-      }
-    }
-
-    this.hydrateTreeFromCache(data.tree)
-    // Persist after hydration so the frontend's initial getGameAnalysis
-    // fetch sees cache-hydrated nodes immediately.
-    GameAnalysisQueueModel.saveState(this.db, data)
-
-    this.gameInput = {
-      data,
-      backgroundConfig,
-      focusConfig,
-      currentNodeId: data.tree.id,
-    }
-  }
-
-  /**
-   * Acquire all engines, wire concrete actors, and start the game machine.
-   * Returns immediately — results stream back via IPC push channels.
-   * Must call initialize() first.
+   * Acquire engines, wire the position machine, and run the position loop.
+   * Returns when the game completes or the coordinator is stopped.
    */
   async start(): Promise<void> {
-    if (!this.gameInput) {
-      throw new Error('GameCoordinator.initialize() must be called before start()')
-    }
+    const config = buildConfig(this.userRating)
 
-    const input = this.gameInput
-
-    // Acquire engines once for the full coordinator lifetime.
     this.stockfish = await getStockfish()
     await this.stockfish.stopAndWait()
     const analysisService = new AnalysisService(this.stockfish)
@@ -218,7 +108,6 @@ export class GameCoordinator {
     }
 
     const evalMaiaMovesService = new EvalMaiaMovesService(analysisService)
-    const moveClassificationService = new MoveClassificationService()
     const phaseService = new PhaseClassificationService()
     this.featuresService = new PositionalFeaturesService(getStockfishClassicBinaryPath())
     await this.featuresService.initialize()
@@ -226,6 +115,9 @@ export class GameCoordinator {
 
     const configHash = this.configHash
     const db = this.db
+    const stockfish = this.stockfish
+    const maiaFloor = this.maiaFloorEngine
+    const maiaCeiling = this.maiaCeilingEngine
 
     const concretePositionMachine = positionMachine.provide({
       actors: {
@@ -247,8 +139,6 @@ export class GameCoordinator {
           const sideToMove = actorInput.fen.split(' ')[1]
           const sign = sideToMove === 'b' ? -1 : 1
           const isBlack = sideToMove === 'b'
-          // Normalize all scores to white's perspective so that positive = white winning
-          // throughout the entire pipeline (evalCp, evalMate, WDL, and every line score).
           const normalizedLines = result.lines.map(line => ({
             ...line,
             score: { type: line.score.type, value: line.score.value * sign },
@@ -297,9 +187,6 @@ export class GameCoordinator {
         evalMaiaMoves: fromPromise(async ({ input: actorInput }) =>
           evalMaiaMovesService.evaluate(actorInput)
         ),
-        classifyPosition: fromPromise(async ({ input: actorInput }) =>
-          moveClassificationService.classify(actorInput)
-        ),
         computePositionalData: fromPromise(async ({ input: actorInput }) => {
           const [phase, features] = await Promise.all([
             phaseService.classifyPosition(actorInput.fen, actorInput.ply),
@@ -307,109 +194,134 @@ export class GameCoordinator {
           ])
           return { phase, features }
         }),
+        stopEngines: fromPromise(async () => {
+          await Promise.all([
+            stockfish.stopAndWait(),
+            maiaFloor.stopAndWait(),
+            ...(ceilingRating !== floorRating ? [maiaCeiling.stopAndWait()] : []),
+          ])
+        }),
       },
     })
 
-    // Capture engine refs for the closure below.
-    const stockfish = this.stockfish
-    const maiaFloor = this.maiaFloorEngine
-    const maiaCeiling = this.maiaCeilingEngine
+    // ── Position loop ──────────────────────────────────────────────────────
 
-    const actor = createActor(
-      gameMachine.provide({
-        actors: {
-          positionMachine: concretePositionMachine,
-          stopEngines: fromPromise(async () => {
-            await Promise.all([
-              stockfish.stopAndWait(),
-              maiaFloor.stopAndWait(),
-              ...(ceilingRating !== floorRating ? [maiaCeiling.stopAndWait()] : []),
-            ])
-          }),
-        },
-      }),
-      { input },
-    )
+    while (!this.stopped) {
+      const game = ChessGameModel.findById(db, this.gameId)
+      if (!game?.pgn) break
 
-    // Pre-populate with nodes already analyzed in previous runs so they are
-    // not re-pushed when the actor starts on a resumed or COMPLETE game.
-    const pushedNodeIds = new Set<number>()
-    const writtenFens = new Set<string>()
-    const prepopulatePushed = (node: AnalysisNode) => {
-      if (node.fsmState === 'NAG_COMPLETE') {
-        pushedNodeIds.add(node.id)
-        writtenFens.add(node.fen)
+      const { root } = parseGameTree(game.pgn)
+      const allFens = collectAllFens(root).map(f => f.fen)
+
+      const next = PositionAnalysisModel.fetchHeadForFens(db, allFens, configHash)
+      if (!next) {
+        GameAnalysisQueueModel.markComplete(db, this.gameId, this.buildFinalAggregates())
+        this.emitGameAnalysisUpdated()
+        this.bus?.emit('game:analysis:complete', { gameId: this.gameId })
+        break
       }
-      for (const child of node.children) prepopulatePushed(child)
+
+      PositionAnalysisModel.markInProgress(db, next.id)
+      this.inFlightFen = next.fen
+      this.inFlightId = next.id
+      this.priorityChangedWhileRunning = false
+
+      const ply = allFens.indexOf(next.fen)
+
+      const actor = createActor(concretePositionMachine, {
+        input: { fen: next.fen, ply: Math.max(0, ply), config },
+      })
+      this.activePositionActor = actor
+
+      try {
+        actor.start()
+        const output = await toPromise(actor)
+
+        if (this.stopped) {
+          PositionAnalysisModel.markPending(db, next.id)
+          break
+        }
+
+        if (this.priorityChangedWhileRunning) {
+          PositionAnalysisModel.markPending(db, next.id)
+          continue
+        }
+
+        this.writePositionToCache(next.id, next.fen, output)
+        computeAndPersistAggregates(db, this.gameId, configHash)
+        this.emitGameAnalysisUpdated()
+      } catch (err) {
+        if (this.priorityChangedWhileRunning) {
+          PositionAnalysisModel.markPending(db, next.id)
+          continue
+        }
+        const retried = PositionAnalysisModel.retryOrFail(db, next.id)
+        if (retried) {
+          console.warn(
+            `[GameCoordinator] Position analysis failed for ${next.fen}, re-queued for retry:`,
+            err,
+          )
+        } else {
+          console.error(
+            `[GameCoordinator] Position analysis permanently failed for ${next.fen} after ${PositionAnalysisModel.MAX_RETRIES} attempts:`,
+            err,
+          )
+        }
+      } finally {
+        this.activePositionActor = null
+        this.inFlightFen = null
+        this.inFlightId = null
+      }
     }
-    prepopulatePushed(input.data.tree)
-
-    // Track consecutive gameFsmState values so game-level transitions are
-    // pushed exactly once. COMPLETE can be reached multiple times (e.g. after
-    // a variation is added and re-analyzed), so we re-fire on each entry.
-    let prevGameFsmState: GameFSMState = input.data.gameFsmState
-
-    actor.subscribe((snapshot) => {
-      const { context } = snapshot
-
-      // Push any newly completed nodes and dual-write to position_analysis.
-      this.pushNewlyCompletedNodes(context, pushedNodeIds, writtenFens)
-
-      // Push COMPLETE whenever gameFsmState transitions into it. Using
-      // prevGameFsmState prevents duplicate pushes on multiple ticks while
-      // already in COMPLETE, but allows re-entry after a new variation.
-      if (context.gameFsmState === 'COMPLETE' && prevGameFsmState !== 'COMPLETE') {
-        this.saveAndPushGameState(context, 'COMPLETE')
-        this.writeGameAggregates(context)
-      }
-
-      prevGameFsmState = context.gameFsmState
-    })
-
-    actor.start()
-
-    // Store actor for navigate() calls.
-    this.actor = actor
   }
 
-  private actor: ReturnType<typeof createActor<typeof gameMachine>> | null = null
-
   /**
-   * Tell the game machine which node the user has navigated to. The machine
-   * transitions to STOP_AND_WAIT, drains all engines, then returns to IDLE
-   * where POSITION_ANALYSIS takes priority for the new currentNodeId.
+   * Called by the orchestrator when position priorities change.
+   * Checks whether the queue head changed and preempts if needed.
+   *
+   * Sets a flag and sends STOP; the position loop detects the flag after
+   * toPromise resolves, marks the row pending, and picks up the new head.
+   * This avoids a race where both onPriorityChanged and the position loop
+   * compete to clean up shared state.
    */
-  navigate(nodeId: number): void {
-    this.actor?.send({ type: 'navigate', nodeId })
+  onPriorityChanged(): void {
+    if (!this.activePositionActor || !this.inFlightFen || this.inFlightId == null) return
+
+    const game = ChessGameModel.findById(this.db, this.gameId)
+    if (!game?.pgn) return
+
+    const { root } = parseGameTree(game.pgn)
+    const allFens = collectAllFens(root).map(f => f.fen)
+
+    const head = PositionAnalysisModel.fetchHeadForFens(this.db, allFens, this.configHash)
+    if (!head || head.fen === this.inFlightFen) return
+
+    this.priorityChangedWhileRunning = true
+    this.activePositionActor.send({ type: 'STOP' })
   }
 
   /**
-   * Inject a newly created variation node into the machine's context tree and
-   * navigate to it atomically. This must be used instead of `navigate` when
-   * the node was just created, because the machine's in-memory tree is a
-   * separate copy from the database and will not yet contain the new node.
-   */
-  insertNode(parentId: number, node: AnalysisNode, nextId: number): void {
-    this.actor?.send({ type: 'insertNode', parentId, node, nextId })
-  }
-
-  /**
-   * Sent by the orchestrator when position priorities change. The machine
-   * enters STOP_AND_WAIT so IDLE can re-evaluate which position to run next.
-   */
-  sendPriorityChanged(): void {
-    this.actor?.send({ type: 'priorityChanged' })
-  }
-
-  /**
-   * Gracefully shut down the coordinator. Stops the XState actor so no further
-   * transitions occur, then drains all three engines in parallel. Safe to call
-   * multiple times. Awaiting ensures engines have fully stopped before the
-   * caller proceeds (e.g. before starting a new coordinator for the same game).
+   * Gracefully shut down the coordinator. Stops the current position actor
+   * (if running), drains engines, and signals the loop to exit.
    */
   async stop(): Promise<void> {
-    this.actor?.stop()
-    this.actor = null
+    this.stopped = true
+
+    if (this.activePositionActor) {
+      this.activePositionActor.send({ type: 'STOP' })
+      try {
+        await toPromise(this.activePositionActor)
+      } catch {
+        // Already in final state
+      }
+      this.activePositionActor = null
+    }
+
+    if (this.inFlightId != null) {
+      PositionAnalysisModel.markPending(this.db, this.inFlightId)
+      this.inFlightId = null
+      this.inFlightFen = null
+    }
 
     await Promise.allSettled([
       this.stockfish?.stopAndWait() ?? Promise.resolve(),
@@ -421,187 +333,52 @@ export class GameCoordinator {
 
   // ==================== Private Helpers ====================
 
-  private toData(context: GameContext, gameFsmState: GameFSMState): GameAnalysisData {
-    return {
-      gameId: context.gameId,
-      pgnHash: context.pgnHash,
-      schemaVersion: context.schemaVersion,
-      gameFsmState,
-      tree: context.tree,
-      evalCurve: context.evalCurve,
-      maiaFloorEvalCurve: context.maiaFloorEvalCurve,
-      maiaCeilingEvalCurve: context.maiaCeilingEvalCurve,
-      nextId: context.nextId,
-      preset: context.preset,
-    }
-  }
-
-  private saveAndPushGameState(context: GameContext, state: GameFSMState): void {
-    const data = this.toData(context, state)
-    GameAnalysisQueueModel.saveState(this.db, data)
-    if (this.sender.isDestroyed()) return
-    this.sender.send('analysis:game-state-update', {
-      success: true,
-      data: { gameId: this.gameId, gameFsmState: state },
-    })
-  }
-
-  private saveAndPushNode(context: GameContext, node: AnalysisNode): void {
-    const data = this.toData(context, context.gameFsmState)
-    GameAnalysisQueueModel.saveState(this.db, data)
-    if (this.sender.isDestroyed()) return
-    const { children: _children, ...nodeWithoutChildren } = node
-    this.sender.send('analysis:node-update', {
-      success: true,
-      data: {
-        gameId: this.gameId,
-        nodeId: node.id,
-        ply: node.ply,
-        node: nodeWithoutChildren,
-        gameFsmState: context.gameFsmState,
-      },
-    })
-  }
-
-  /**
-   * Walk the entire tree (DFS) and push any NAG_COMPLETE nodes that have not
-   * been pushed yet. Also dual-writes each newly completed position to
-   * position_analysis for cross-game cache sharing.
-   */
-  private pushNewlyCompletedNodes(
-    context: GameContext,
-    pushedNodeIds: Set<number>,
-    writtenFens: Set<string>,
-  ): void {
-    const walk = (node: AnalysisNode) => {
-      if (node.fsmState === 'NAG_COMPLETE' && !pushedNodeIds.has(node.id)) {
-        pushedNodeIds.add(node.id)
-        this.saveAndPushNode(context, node)
-
-        if (!writtenFens.has(node.fen)) {
-          writtenFens.add(node.fen)
-          this.writePositionToCache(node)
-        }
-      }
-      for (const child of node.children) walk(child)
-    }
-    walk(context.tree)
-  }
-
-  /**
-   * Write a completed position's result to the normalized position_analysis
-   * table. Reconstructs a PositionOutput from the AnalysisNode so the cache
-   * can be read back by the positionMachine's CACHE_PROBE state.
-   */
-  private writePositionToCache(node: AnalysisNode): void {
-    const row = PositionAnalysisModel.findByFen(this.db, node.fen, this.configHash)
-    if (!row) return
-    if (row.status === 'complete') return
-
-    const output: PositionOutput = {
-      engineResult: node.engineResult ?? null,
-      maiaFloorResult: node.maiaFloorResult ?? null,
-      maiaCeilingResult: node.maiaCeilingResult ?? null,
-      augmentedMaiaFloor: node.augmentedMaiaFloor ?? null,
-      augmentedMaiaCeiling: node.augmentedMaiaCeiling ?? null,
-      nag: node.nag!,
-      isBestMove: node.isBestMove!,
-      moveAccuracy: null,
-      criticalityScore: node.criticalityScore ?? null,
-      floorMistakeProb: node.floorMistakeProb ?? null,
-      ceilingMistakeProb: node.ceilingMistakeProb ?? null,
-      phaseResult: node.phaseScore != null
-        ? {
-            phase: node.endgameScore != null && node.endgameScore > 0.5
-              ? 'endgame'
-              : node.openingScore != null && node.openingScore > 0.5
-                ? 'opening'
-                : 'middlegame',
-            phaseScore: node.phaseScore,
-            openingScore: node.openingScore!,
-            middlegameScore: node.middlegameScore!,
-            endgameScore: node.endgameScore!,
-            ecoMatch: node.ecoCode ? { eco: node.ecoCode, name: '' } as any : null,
-          }
-        : null,
-      positionalFeatures: node.positionalFeatures ?? null,
-      maiaFloorBestEval: node.maiaFloorBestEval ?? null,
-      maiaCeilingBestEval: node.maiaCeilingBestEval ?? null,
-    }
-
+  private writePositionToCache(id: number, fen: string, output: PositionOutput): void {
     PositionAnalysisModel.markComplete(
       this.db,
-      row.id,
+      id,
       JSON.stringify(output),
-      node.engineResult?.depth ?? 0,
+      output.engineResult?.depth ?? 0,
     )
   }
 
-  /**
-   * On game COMPLETE: write game-level aggregates to game_analysis_queue
-   * and emit game:analysis:complete. Aggregates are computed incrementally
-   * by the gameMachine and flushed here once.
-   */
-  private writeGameAggregates(context: GameContext): void {
-    const whiteStats = computePlayerStats(context.tree, 'w')
-    const blackStats = computePlayerStats(context.tree, 'b')
-    const evalCurve = buildEvalCurveFromMainLine(context.tree)
+  private buildFinalAggregates() {
+    const game = ChessGameModel.findById(this.db, this.gameId)
+    if (!game?.pgn) {
+      return {
+        accuracy_white: 0,
+        accuracy_black: 0,
+        white_stats_json: '{}',
+        black_stats_json: '{}',
+        eval_curve_json: '[]',
+        node_results_json: '{}',
+        radar_data_json: '{}',
+        maia_floor_curve_json: '[]',
+        maia_ceiling_curve_json: '[]',
+      }
+    }
 
-    GameAnalysisQueueModel.markComplete(this.db, this.gameId, {
-      accuracy_white: whiteStats.accuracy ?? 0,
-      accuracy_black: blackStats.accuracy ?? 0,
-      white_stats_json: JSON.stringify(whiteStats),
-      black_stats_json: JSON.stringify(blackStats),
-      eval_curve_json: JSON.stringify(evalCurve),
-    })
-
-    this.bus?.emit('game:analysis:complete', { gameId: this.gameId })
+    // computeAndPersistAggregates already wrote incremental aggregates;
+    // read them back for the final markComplete call.
+    const row = GameAnalysisQueueModel.findByGameId(this.db, this.gameId)
+    return {
+      accuracy_white: row?.accuracy_white ?? 0,
+      accuracy_black: row?.accuracy_black ?? 0,
+      white_stats_json: row?.white_stats_json ?? '{}',
+      black_stats_json: row?.black_stats_json ?? '{}',
+      eval_curve_json: row?.eval_curve_json ?? '[]',
+      node_results_json: row?.node_results_json ?? '{}',
+      radar_data_json: row?.radar_data_json ?? '{}',
+      maia_floor_curve_json: row?.maia_floor_curve_json ?? '[]',
+      maia_ceiling_curve_json: row?.maia_ceiling_curve_json ?? '[]',
+    }
   }
 
-  /**
-   * Walk the tree (DFS) and apply cached position results from
-   * position_analysis. Nodes with a matching complete row are set to
-   * NAG_COMPLETE without engine work. Called during initialize() before
-   * the machine starts.
-   */
-  private hydrateTreeFromCache(tree: AnalysisNode): void {
-    const walk = (node: AnalysisNode) => {
-      if (node.fsmState === 'UNANALYZED') {
-        const row = PositionAnalysisModel.findByFen(this.db, node.fen, this.configHash)
-        if (row && row.status === 'complete' && row.result_json) {
-          try {
-            const cached = JSON.parse(row.result_json) as PositionOutput
-            Object.assign(node, {
-              fsmState: 'NAG_COMPLETE' as const,
-              engineResult: cached.engineResult ?? undefined,
-              criticalityScore: cached.criticalityScore ?? undefined,
-              nag: cached.nag,
-              isBestMove: cached.isBestMove,
-              maiaFloorResult: cached.maiaFloorResult ?? undefined,
-              maiaCeilingResult: cached.maiaCeilingResult ?? undefined,
-              augmentedMaiaFloor: cached.augmentedMaiaFloor ?? undefined,
-              augmentedMaiaCeiling: cached.augmentedMaiaCeiling ?? undefined,
-              floorMistakeProb: cached.floorMistakeProb ?? undefined,
-              ceilingMistakeProb: cached.ceilingMistakeProb ?? undefined,
-              phaseScore: cached.phaseResult?.phaseScore,
-              openingScore: cached.phaseResult?.openingScore,
-              middlegameScore: cached.phaseResult?.middlegameScore,
-              endgameScore: cached.phaseResult?.endgameScore,
-              ecoCode: cached.phaseResult?.ecoMatch?.eco ?? undefined,
-              isBookMove: cached.phaseResult != null
-                ? cached.phaseResult.ecoMatch != null
-                : undefined,
-              positionalFeatures: cached.positionalFeatures ?? undefined,
-              maiaFloorBestEval: cached.maiaFloorBestEval,
-              maiaCeilingBestEval: cached.maiaCeilingBestEval,
-            })
-          } catch {
-            // Corrupt cache row — leave node as UNANALYZED
-          }
-        }
-      }
-      for (const child of node.children) walk(child)
-    }
-    walk(tree)
+  private emitGameAnalysisUpdated(): void {
+    if (this.webContents.isDestroyed()) return
+    this.webContents.send('game:analysis:updated', {
+      success: true,
+      data: { gameId: this.gameId },
+    })
   }
 }

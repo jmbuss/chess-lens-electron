@@ -4,12 +4,14 @@ import { useRoute } from 'vue-router'
 import AppSidebar from './components/AppSidebar.vue'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { useDarkMode } from './composables/darkMode/useDarkMode'
+import { useChessGamesListInvalidation } from './composables/chessGames/useChessGamesListInvalidation'
 
 import 'chessground/assets/chessground.base.css'
 import 'chessground/assets/chessground.brown.css'
 import 'chessground/assets/chessground.cburnett.css'
 
 onMounted(() => useDarkMode().applyClass())
+useChessGamesListInvalidation()
 
 const route = useRoute()
 const layout = computed(() => route.meta.layout ?? 'app')

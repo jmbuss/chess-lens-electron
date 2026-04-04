@@ -7,6 +7,8 @@ import {
 } from 'src/database/platform-account'
 import { IpcHandler } from 'src/ipc/IPCHandler'
 import { IpcRequest, IpcResponse } from 'src/ipc/types'
+import type { EventBus } from 'src/events'
+import '../events'
 
 declare module 'src/ipc/handlers' {
   export interface IpcChannels {
@@ -24,7 +26,10 @@ declare module 'src/ipc/handlers' {
 export class PlatformCreateHandler extends IpcHandler {
   static readonly channel = 'platform:create' as const
 
-  constructor(private db: Database.Database) {
+  constructor(
+    private db: Database.Database,
+    private bus: EventBus,
+  ) {
     super()
   }
 
@@ -43,10 +48,16 @@ export class PlatformCreateHandler extends IpcHandler {
       }
     }
 
-    const platform = PlatformAccountModel.create(this.db, request.params)
+    const account = PlatformAccountModel.create(this.db, request.params)
+
+    this.bus.emit('platform:account:created', {
+      username: request.params.platformUsername,
+      platform: request.params.platform,
+    })
+
     return {
       success: true,
-      data: platform,
+      data: account,
     }
   }
 }

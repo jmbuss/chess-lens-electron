@@ -14,19 +14,17 @@ import {
 import type { EChartsOption } from 'echarts'
 import { useInjectedGameAnalysis } from '../composables/provideGameAnalysis'
 import { useInjectedGameNavigator } from '../composables/provideChessGame'
-import type { AnalysisNode } from 'src/database/analysis/types'
+import type { PositionAnalysis } from 'src/database/analysis/types'
+import type { GameNode, GameChildNode } from '../composables/types'
 import { useDarkMode } from 'src/renderer/composables/darkMode/useDarkMode'
 
 use([CanvasRenderer, LineChart, BarChart, GridComponent, TooltipComponent, MarkLineComponent, DataZoomComponent, LegendComponent])
 
-const { analysisTree } = useInjectedGameAnalysis()
-const { currentFen, moveList, goToNode } = useInjectedGameNavigator()
+const { analysisByFen } = useInjectedGameAnalysis()
+const { currentFen, moveList, goToNode, root } = useInjectedGameNavigator()
 const { isDark } = useDarkMode()
 
 // ── Phase color interpolation ──────────────────────────────────────────────────
-//
-// phaseScore is a continuous value: 128 = pure opening (full material),
-// 64 = pure middlegame, 0 = pure endgame (minimal material).
 
 const PHASE_RGBA = {
   opening:    { r: 31,  g: 156, b: 137, a: 0.22 },
@@ -41,12 +39,10 @@ function interpolatePhaseColor(phase: number): string {
   let c2: typeof PHASE_RGBA.opening
 
   if (p >= 64) {
-    // opening → middlegame  (phase 128 → 64)
     t = (p - 64) / 64
     c1 = PHASE_RGBA.middlegame
     c2 = PHASE_RGBA.opening
   } else {
-    // middlegame → endgame  (phase 64 → 0)
     t = p / 64
     c1 = PHASE_RGBA.endgame
     c2 = PHASE_RGBA.middlegame
@@ -59,91 +55,111 @@ function interpolatePhaseColor(phase: number): string {
   return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`
 }
 
-// ── Tree helpers ───────────────────────────────────────────────────────────────
+// ── Mainline helpers ───────────────────────────────────────────────────────────
 
-function getMainLine(root: AnalysisNode | null): AnalysisNode[] {
-  const nodes: AnalysisNode[] = []
-  let current: AnalysisNode | null = root
-  while (current) {
-    nodes.push(current)
-    current = current.children[0] ?? null
+const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+
+interface MainlineEntry {
+  fen: string
+  analysis: PositionAnalysis | undefined
+  san?: string
+  color?: 'w' | 'b'
+  moveNumber?: number
+}
+
+function getMainLine(gameRoot: GameNode): MainlineEntry[] {
+  const entries: MainlineEntry[] = [{
+    fen: STARTING_FEN,
+    analysis: undefined,
+  }]
+  let current: GameNode | GameChildNode = gameRoot
+  while (current.children.length > 0) {
+    const child = current.children[0] as GameChildNode
+    entries.push({
+      fen: child.data.fen,
+      san: child.data.san,
+      color: child.data.color,
+      moveNumber: child.data.moveNumber,
+      analysis: undefined,
+    })
+    current = child
   }
-  return nodes
+  return entries
 }
 
 // ── Data helpers ───────────────────────────────────────────────────────────────
 
-function clampEval(node: AnalysisNode): number | null {
-  const { engineResult } = node
-  if (!engineResult) return null
-  if (engineResult.evalMate != null) return engineResult.evalMate > 0 ? 10 : -10
-  if (engineResult.evalCp != null) return Math.max(-10, Math.min(10, engineResult.evalCp / 100))
+function clampEval(a: PositionAnalysis | undefined): number | null {
+  if (!a?.engineResult) return null
+  if (a.engineResult.evalMate != null) return a.engineResult.evalMate > 0 ? 10 : -10
+  if (a.engineResult.evalCp != null) return Math.max(-10, Math.min(10, a.engineResult.evalCp / 100))
   return null
 }
 
-/**
- * Returns one bar datum per move for the phase-background series.
- * Each bar has value 1 (full height on the hidden 0-1 axis) and is tinted
- * with the interpolated phase color. Nodes without phaseScore data yet are
- * rendered transparent so no false color appears during in-progress analysis.
- */
-function buildPhaseBackground(nodes: AnalysisNode[]) {
-  return nodes.map(n => ({
+function buildPhaseBackground(entries: MainlineEntry[]) {
+  return entries.map(e => ({
     value: 1,
     itemStyle: {
-      color: n.phaseScore != null ? interpolatePhaseColor(n.phaseScore) : 'rgba(0,0,0,0)',
+      color: e.analysis?.phaseScore != null ? interpolatePhaseColor(e.analysis.phaseScore) : 'rgba(0,0,0,0)',
     },
   }))
 }
 
 // ── Computed chart data ────────────────────────────────────────────────────────
 
-const mainLineNodes = computed(() => getMainLine(analysisTree.value))
-const moveNodes = computed(() => mainLineNodes.value.slice(1))
-const hasData = computed(() => moveNodes.value.length > 0)
+const mainLineEntries = computed(() => {
+  if (!root.value) return []
+  const entries = getMainLine(root.value as GameNode)
+  const map = analysisByFen.value
+  for (const entry of entries) {
+    entry.analysis = map.get(entry.fen)
+  }
+  return entries
+})
+
+const moveEntries = computed(() => mainLineEntries.value.slice(1))
+const hasData = computed(() => moveEntries.value.length > 0)
 
 const currentMoveIndex = computed(() =>
-  moveNodes.value.findIndex(n => n.fen === currentFen.value),
+  moveEntries.value.findIndex(e => e.fen === currentFen.value),
 )
 
 const handleChartClick = (params: { dataIndex: number }) => {
-  const node = moveNodes.value[params.dataIndex]
-  if (!node) return
-  const gameNode = moveList.value.find(n => n.data.fen === node.fen)
+  const entry = moveEntries.value[params.dataIndex]
+  if (!entry) return
+  const gameNode = moveList.value.find(n => n.data.fen === entry.fen)
   if (gameNode) goToNode(gameNode)
 }
 
 const option = computed((): EChartsOption => {
-  const nodes = moveNodes.value
+  const entries = moveEntries.value
 
-  const moveLabels = nodes.map(n => {
-    const prefix = n.color === 'w' ? `${n.moveNumber}.` : `${n.moveNumber}...`
-    return `${prefix} ${n.san ?? ''}`
+  const moveLabels = entries.map(e => {
+    const prefix = e.color === 'w' ? `${e.moveNumber}.` : `${e.moveNumber}...`
+    return `${prefix} ${e.san ?? ''}`
   })
 
-  const evalData = nodes.map(n => clampEval(n))
+  const evalData = entries.map(e => clampEval(e.analysis))
 
-  // maiaFloorBestEval on node N = "Stockfish eval of Maia's top move *from* position N"
-  // That's the eval of the position reached at N+1, so to align with the Stockfish
-  // evalCp at chart position i (= eval after move i was played), we read Maia's best
-  // eval from the *parent* node (mainLineNodes[i]), not from moveNodes[i] itself.
-  const maiaFloorData = nodes.map((_, i) => {
-    const parent = mainLineNodes.value[i]
-    const v = parent?.maiaFloorBestEval
+  // maiaFloorBestEval on position N = "Stockfish eval of Maia's top move *from* position N"
+  // Align with Stockfish evalCp at chart position i by reading from the parent.
+  const maiaFloorData = entries.map((_, i) => {
+    const parent = mainLineEntries.value[i]
+    const v = parent?.analysis?.maiaFloorBestEval
     if (v == null) return null
     return Math.max(-10, Math.min(10, v / 100))
   })
 
-  const maiaCeilingData = nodes.map((_, i) => {
-    const parent = mainLineNodes.value[i]
-    const v = parent?.maiaCeilingBestEval
+  const maiaCeilingData = entries.map((_, i) => {
+    const parent = mainLineEntries.value[i]
+    const v = parent?.analysis?.maiaCeilingBestEval
     if (v == null) return null
     return Math.max(-10, Math.min(10, v / 100))
   })
 
-  const phaseBackground = buildPhaseBackground(nodes)
+  const phaseBackground = buildPhaseBackground(entries)
 
-  const labelInterval = Math.max(0, Math.floor(nodes.length / 16) - 1)
+  const labelInterval = Math.max(0, Math.floor(entries.length / 16) - 1)
 
   const allEvalValues = [...evalData, ...maiaFloorData, ...maiaCeilingData].filter((v): v is number => v != null)
   const dataMin = allEvalValues.length ? Math.min(...allEvalValues) : -10
@@ -162,6 +178,19 @@ const option = computed((): EChartsOption => {
     if (v === 10) return '+M'
     if (v === -10) return '-M'
     return `${v > 0 ? '+' : ''}${v.toFixed(2)}`
+  }
+
+  const formatMaiaTooltip = (parentAnalysis: PositionAnalysis | undefined, key: 'augmentedMaiaFloor' | 'augmentedMaiaCeiling'): string => {
+    const topPrediction = parentAnalysis?.[key]?.predictions[0]
+    if (!topPrediction) return '–'
+    const score = topPrediction.stockfishScore
+    if (score == null) return '–'
+    if (score.type === 'mate') return score.value > 0 ? `+M${Math.abs(score.value)}` : `-M${Math.abs(score.value)}`
+    if (score.type === 'cp') {
+      const v = Math.max(-10, Math.min(10, score.value / 100))
+      return `${v > 0 ? '+' : ''}${v.toFixed(2)}`
+    }
+    return '–'
   }
 
   return {
@@ -193,14 +222,13 @@ const option = computed((): EChartsOption => {
         if (!items?.length) return ''
         const move = items[0].name
         const idx = items[0].dataIndex ?? 0
-        const node = nodes[idx]
+        const entry = entries[idx]
+        const parentEntry = mainLineEntries.value[idx]
         const evalItem = items.find(p => p.seriesName === 'Eval')
-        const maiaFloorItem = items.find(p => p.seriesName === 'Maia Floor')
-        const maiaCeilingItem = items.find(p => p.seriesName === 'Maia Ceiling')
         const evalStr = formatEvalTooltip(evalItem?.value)
-        const maiaFloorStr = formatEvalTooltip(maiaFloorItem?.value)
-        const maiaCeilingStr = formatEvalTooltip(maiaCeilingItem?.value)
-        const phaseStr = node?.phaseScore != null ? node.phaseScore.toString() : '–'
+        const maiaFloorStr = formatMaiaTooltip(parentEntry?.analysis, 'augmentedMaiaFloor')
+        const maiaCeilingStr = formatMaiaTooltip(parentEntry?.analysis, 'augmentedMaiaCeiling')
+        const phaseStr = entry?.analysis?.phaseScore != null ? entry.analysis.phaseScore.toString() : '–'
         return (
           `<b>${move}</b>` +
           `<br/>Stockfish: ${evalStr}` +
@@ -235,7 +263,6 @@ const option = computed((): EChartsOption => {
     },
     yAxis: [
       {
-        // index 0 — eval  (auto-fit to dataset with small padding)
         type: 'value',
         min: yMin,
         max: yMax,
@@ -247,7 +274,6 @@ const option = computed((): EChartsOption => {
         },
       },
       {
-        // index 1 — phase background  (0 to 1, hidden)
         type: 'value',
         min: 0,
         max: 1,
@@ -256,7 +282,6 @@ const option = computed((): EChartsOption => {
     ],
     series: [
       {
-        // Phase background: full-width bars, one per move, z=0 (behind everything)
         name: 'Phase',
         type: 'bar',
         barWidth: '100%',
@@ -292,7 +317,6 @@ const option = computed((): EChartsOption => {
         z: 3,
       },
       {
-        // Eval: smooth line on top
         name: 'Eval',
         type: 'line',
         data: evalData,
@@ -316,12 +340,11 @@ const option = computed((): EChartsOption => {
         },
       },
       {
-        // Invisible full-height bars used as click targets so any click in a column registers
         name: 'ClickTarget',
         type: 'bar',
         barWidth: '100%',
         barCategoryGap: '0%',
-        data: nodes.map(() => ({ value: 1, itemStyle: { opacity: 0 }, cursor: 'pointer' })),
+        data: entries.map(() => ({ value: 1, itemStyle: { opacity: 0 }, cursor: 'pointer' })),
         yAxisIndex: 1,
         z: 5,
         emphasis: { disabled: true },

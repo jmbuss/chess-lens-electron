@@ -101,26 +101,19 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
     this.ensureReady()
     this.status = 'analyzing'
 
-    // Always set MultiPV at the start of every call so the correct value is
-    // guaranteed even if the previous call was interrupted before it could
-    // reset the option. This also eliminates the trailing async reset that
-    // previously caused a race: stopAndWait() resolves on bestmove, but the
-    // trailing waitForResponse kept status='analyzing', causing the next
-    // analyze() call to throw "Engine is not ready".
-    const multipv = options.multipv ?? 1
-    this.sendCommand(`setoption name MultiPV value ${multipv}`)
-    await this.waitForResponse('isready', 'readyok', READY_TIMEOUT_MS)
+    try {
+      const multipv = options.multipv ?? 1
+      this.sendCommand(`setoption name MultiPV value ${multipv}`)
+      await this.waitForResponse('isready', 'readyok', READY_TIMEOUT_MS)
 
-    this.sendCommand(`position fen ${fen}`)
+      this.sendCommand(`position fen ${fen}`)
 
-    const goCommand = this.buildGoCommand(options)
+      const goCommand = this.buildGoCommand(options)
 
-    const lines = await this.collectAnalysis(goCommand, onProgress)
-
-    // Set status immediately — no trailing async work so stopAndWait() callers
-    // see 'ready' as soon as the next microtask runs after bestmove fires.
-    this.status = 'ready'
-    return lines
+      return await this.collectAnalysis(goCommand, onProgress)
+    } finally {
+      this.status = 'ready'
+    }
   }
 
   /**
@@ -138,18 +131,19 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
     this.ensureReady()
     this.status = 'analyzing'
 
-    const multipv = options.multipv ?? 1
-    this.sendCommand(`setoption name MultiPV value ${multipv}`)
-    await this.waitForResponse('isready', 'readyok', READY_TIMEOUT_MS)
+    try {
+      const multipv = options.multipv ?? 1
+      this.sendCommand(`setoption name MultiPV value ${multipv}`)
+      await this.waitForResponse('isready', 'readyok', READY_TIMEOUT_MS)
 
-    this.sendCommand(`position fen ${fen}`)
+      this.sendCommand(`position fen ${fen}`)
 
-    const goCommand = this.buildGoCommand(options)
+      const goCommand = this.buildGoCommand(options)
 
-    const { lines, policy } = await this.collectAnalysisWithPolicy(goCommand)
-
-    this.status = 'ready'
-    return { lines, policy }
+      return await this.collectAnalysisWithPolicy(goCommand)
+    } finally {
+      this.status = 'ready'
+    }
   }
 
   /**

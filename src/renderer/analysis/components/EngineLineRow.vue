@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { AnalysisLine } from 'src/services/engine/types'
+import type { AnalysisLine, UCIScore } from 'src/services/engine/types'
 
 const props = defineProps<{
   variant: 'stockfish' | 'maia'
@@ -16,6 +16,8 @@ const props = defineProps<{
   uci?: string
   probability?: number
   evalCp?: number | null
+  /** Full Stockfish score — used to show mate notation (M3, -M5 etc.) */
+  evalScore?: UCIScore | null
 }>()
 
 const emit = defineEmits<{
@@ -76,12 +78,20 @@ const stockfishScoreClass = computed((): string => {
 // ── Maia helpers ───────────────────────────────────────────────────────────
 
 const maiaEvalLabel = computed((): string => {
+  const score = props.evalScore
+  if (score?.type === 'mate') {
+    return score.value > 0 ? `M${score.value}` : `-M${Math.abs(score.value)}`
+  }
   if (props.evalCp === null || props.evalCp === undefined) return '—'
   const pawns = props.evalCp / 100
   return pawns > 0 ? `+${pawns.toFixed(2)}` : pawns.toFixed(2)
 })
 
 const maiaEvalClass = computed((): string => {
+  const score = props.evalScore
+  if (score?.type === 'mate') {
+    return score.value > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+  }
   if (props.evalCp === null || props.evalCp === undefined) return 'text-muted'
   if (props.evalCp > 50) return 'text-green-600 dark:text-green-400'
   if (props.evalCp < -50) return 'text-red-600 dark:text-red-400'

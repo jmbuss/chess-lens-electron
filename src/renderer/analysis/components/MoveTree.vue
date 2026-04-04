@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { GameNode, GameChildNode } from '../composables/types'
-import type { AnalysisNode } from 'src/database/analysis/types'
+import type { PositionAnalysis } from 'src/database/analysis/types'
 import { NAG } from 'src/services/engine/types'
 import { nagColor, nagSymbol } from 'src/utils/chess/nag'
 import { Button as UIButton } from '@/components/ui/button'
@@ -11,8 +11,8 @@ const props = defineProps<{
   startNode: GameNode | GameChildNode
   /** The currently active node in the game tree */
   currentNode: GameNode | GameChildNode | null
-  /** Optional analysis map (fen → AnalysisNode) for engine NAG lookup */
-  analysisByFen?: Map<string, AnalysisNode>
+  /** Optional analysis map (fen → PositionAnalysis) for engine NAG lookup */
+  analysisByFen?: Map<string, PositionAnalysis>
   /** When true, renders moves inline (used for variations) */
   inline?: boolean
 }>()

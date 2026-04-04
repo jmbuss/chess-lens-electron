@@ -3,13 +3,13 @@ import { ipcService } from 'src/ipc/renderer'
 import { queryClient } from 'src/renderer/query/queryClient'
 import type { ChessGame, ChessGameDataWithAnalysis } from 'src/database/chess/types'
 
-const CHESS_GAMES_QUERY_KEY = ['chess-games'] as const
+export const CHESS_GAMES_QUERY_KEY = ['chess-games'] as const
 
-interface ChessGameWithAnalysis extends ChessGame {
+export interface ChessGameWithAnalysis extends ChessGame {
   analysisStatus: 'UNANALYZED' | 'PENDING' | 'ANALYZING' | 'COMPLETE' | null
 }
 
-const mapRow = (data: ChessGameDataWithAnalysis): ChessGameWithAnalysis => ({
+export const mapRow = (data: ChessGameDataWithAnalysis): ChessGameWithAnalysis => ({
   ...data,
   startTime: data.startTime ? new Date(data.startTime) : undefined,
   endTime: data.endTime ? new Date(data.endTime) : undefined,

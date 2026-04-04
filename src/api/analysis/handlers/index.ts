@@ -1,8 +1,9 @@
-export { AnalyzeGameHandler } from './analyzeGame'
 export { GetGameAnalysisHandler } from './getGameAnalysis'
-export { AddVariationHandler } from './addVariation'
-export { StudyPositionHandler } from './studyPosition'
-export { StopAnalysisHandler } from './stopAnalysis'
 export { PrioritizeGameHandler } from './prioritizeGame'
 export { PrioritizePositionHandler } from './prioritizePosition'
+export { GamePositionPrioritizeHandler } from './gamePositionPrioritize'
 export { MutatePgnHandler } from './mutatePgn'
+export { ReanalyzeGameHandler } from './reanalyzeGame'
+
+// Channel type declarations (kept for backward compatibility / push channel types)
+import './analyzeGame'
