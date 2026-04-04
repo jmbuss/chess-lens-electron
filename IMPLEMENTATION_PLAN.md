@@ -1057,7 +1057,7 @@ src/services/analysis/
 
 ---
 
-## Phase 6 — New IPC APIs
+## Phase 6 — New IPC APIs ✅
 
 **Goal:** Add the UI-facing APIs for prioritization and PGN mutation.
 
@@ -1144,7 +1144,7 @@ Add to `src/api/analysis/register.ts`.
 
 ---
 
-## Phase 7 — Sync Integration
+## Phase 7 — Sync Integration ✅
 
 **Goal:** Wire the sync worker to emit events and trigger the scheduler on `app:started`.
 
@@ -1205,7 +1205,7 @@ export class SyncCoordinator {
 
 ---
 
-## Phase 8 — Deprecation & Cleanup
+## Phase 8 — Deprecation & Cleanup ✅
 
 **Goal:** Remove `GameCoordinatorRegistry` and migrate IPC handlers to use the orchestrator. The `GameCoordinator`, `gameMachine`, and `positionMachine` all survive — they are the core analysis runtime.
 

@@ -11,6 +11,7 @@ import { buildConfigHash } from './PositionQueueManager'
 import { ANALYSIS_PRESETS } from 'src/database/analysis/types'
 import type { AnalysisModeConfig } from 'src/database/analysis/types'
 
+import '../../events/app'
 import './events'
 
 /**
@@ -19,6 +20,7 @@ import './events'
  * of tracking the active coordinator.
  *
  * Listens to:
+ * - app:started — evaluate queue so pending work resumes after launch
  * - game:queue:updated — re-evaluate which game should be active
  * - position:queue:updated — forward priority changes to the active coordinator
  */
@@ -34,7 +36,17 @@ export class AnalysisOrchestrator {
     private webContents: WebContents,
     private userRating: number = 1500,
   ) {
-    this.bus.on('game:queue:updated', () => void this.evaluateQueue())
+    // Reset any rows that were left in_progress from a previous crash/shutdown
+    // so they re-enter the queue and get analyzed on this run.
+    GameAnalysisQueueModel.resetStaleLocks(this.db)
+
+    this.bus.on('app:started', () => void this.evaluateQueue())
+    this.bus.on('game:queue:updated', (p) => {
+      if (p.reason === 'priority_changed' && p.gameId) {
+        console.log(`[AnalysisOrchestrator] Game marked high priority: ${p.gameId}`)
+      }
+      void this.evaluateQueue()
+    })
     this.bus.on('position:queue:updated', (p) => this.forwardPositionUpdate(p))
   }
 
@@ -57,6 +69,9 @@ export class AnalysisOrchestrator {
     // Preemption: new head has higher priority (lower number = higher urgency)
     // than the current game.
     if (head.priority < this.activePriority) {
+      console.log(
+        `[AnalysisOrchestrator] Preempting ${this.activeGameId} for higher-priority game ${head.game_id} (priority ${head.priority} < ${this.activePriority})`,
+      )
       await this.activeCoordinator.stop()
       GameAnalysisQueueModel.markPending(this.db, this.activeGameId!)
       this.activeCoordinator = null
@@ -77,6 +92,10 @@ export class AnalysisOrchestrator {
       GameAnalysisQueueModel.markFailed(this.db, queueItem.game_id)
       return
     }
+
+    console.log(
+      `[AnalysisOrchestrator] Starting analysis for game ${game.id} (${game.white.username} vs ${game.black.username}, ${game.platform}), queue priority ${queueItem.priority}`,
+    )
 
     const configHash = this.getActiveConfigHash()
     this.positionQueueManager.populateFromPgn(game.pgn, configHash)
@@ -124,6 +143,21 @@ export class AnalysisOrchestrator {
   getActiveCoordinator(gameId: string): GameCoordinator | null {
     if (this.activeGameId === gameId) return this.activeCoordinator
     return null
+  }
+
+  /**
+   * Stop the active coordinator for a specific game. If the given gameId is
+   * not currently active, this is a no-op. After stopping, re-evaluates the
+   * queue so the next pending game starts automatically.
+   */
+  async stopGame(gameId: string): Promise<void> {
+    if (this.activeGameId !== gameId) return
+    if (this.activeCoordinator) {
+      await this.activeCoordinator.stop()
+      this.activeCoordinator = null
+      this.activeGameId = null
+      void this.evaluateQueue()
+    }
   }
 
   /**

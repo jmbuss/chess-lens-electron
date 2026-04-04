@@ -4,7 +4,7 @@ import { IpcHandler } from 'src/ipc/IPCHandler'
 import { IpcRequest, IpcResponse } from 'src/ipc/types'
 import { GameAnalysisModel } from 'src/database/analysis/GameAnalysisModel'
 import type { AnalysisNode, GameFSMState } from 'src/database/analysis/types'
-import { GameCoordinatorRegistry } from '../GameCoordinatorRegistry'
+import type { AnalysisOrchestrator } from 'src/services/analysis/AnalysisOrchestrator'
 
 interface AddVariationParams {
   gameId: string
@@ -56,7 +56,10 @@ function findNodeByFen(root: AnalysisNode, fen: string): AnalysisNode | null {
 export class AddVariationHandler extends IpcHandler {
   static readonly channel = 'analysis:addVariation' as const
 
-  constructor(private db: Database.Database) {
+  constructor(
+    private db: Database.Database,
+    private orchestrator: AnalysisOrchestrator,
+  ) {
     super()
   }
 
@@ -122,7 +125,7 @@ export class AddVariationHandler extends IpcHandler {
     // Inject the new node into the machine's context tree AND navigate to it
     // atomically. Using plain navigate() would fail because the machine's
     // in-memory tree is a separate copy that does not yet contain newNode.
-    GameCoordinatorRegistry.get(p.gameId)?.insertNode(parent.id, newNode, state.nextId)
+    this.orchestrator.getActiveCoordinator(p.gameId)?.insertNode(parent.id, newNode, state.nextId)
 
     return { success: true, data: { nodeId, isNew: true } }
   }

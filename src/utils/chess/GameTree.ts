@@ -159,7 +159,6 @@ export function parseGameTree(pgn: string): ParsedGameTree {
     }
 
     buildTree(game.moves, root, startPos.clone(), null)
-    console.log('game.headers:', game.headers)
 
     return { root, headers: extractHeaders(game.headers) }
   } catch (error) {

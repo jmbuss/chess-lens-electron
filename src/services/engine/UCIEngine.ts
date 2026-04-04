@@ -39,8 +39,6 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
    * Spawn the engine process, send "uci", configure options, and wait for "readyok".
    */
   async initialize(): Promise<void> {
-    console.log(`[UCIEngine:${this.config.name}] initialize() called (current status: ${this.status})`)
-
     if (this.status !== 'idle' && this.status !== 'quit' && this.status !== 'error') {
       const err = `Cannot initialize engine in state: ${this.status}`
       console.error(`[UCIEngine:${this.config.name}] initialize() rejected — ${err}`)
@@ -50,11 +48,9 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
     this.status = 'initializing'
     this.lineBuffer = ''
 
-    console.log(`[UCIEngine:${this.config.name}] spawning process: ${this.config.binaryPath}`, this.config.args ?? [])
     this.process = spawn(this.config.binaryPath, this.config.args ?? [], {
       stdio: ['pipe', 'pipe', 'pipe'],
     })
-    console.log(`[UCIEngine:${this.config.name}] process spawned (pid: ${this.process.pid})`)
 
     this.process.stdout!.on('data', (data: Buffer) => {
       this.onData(data.toString())
@@ -71,29 +67,23 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
     })
 
     this.process.on('exit', (code: number | null) => {
-      console.log(`[UCIEngine:${this.config.name}] process exited with code ${code}`)
       this.status = 'quit'
       this.process = null
       this.emit('exit', code)
     })
 
     // Send "uci" and wait for "uciok"
-    console.log(`[UCIEngine:${this.config.name}] waiting for uciok (timeout: ${INIT_TIMEOUT_MS}ms)`)
     await this.waitForResponse('uci', 'uciok', INIT_TIMEOUT_MS)
-    console.log(`[UCIEngine:${this.config.name}] received uciok`)
 
     // Set options
     if (this.config.options) {
       for (const [name, value] of Object.entries(this.config.options)) {
-        console.log(`[UCIEngine:${this.config.name}] setting option: ${name} = ${value}`)
         this.sendCommand(`setoption name ${name} value ${value}`)
       }
     }
 
     // Send "isready" and wait for "readyok"
-    console.log(`[UCIEngine:${this.config.name}] waiting for readyok (timeout: ${READY_TIMEOUT_MS}ms)`)
     await this.waitForResponse('isready', 'readyok', READY_TIMEOUT_MS)
-    console.log(`[UCIEngine:${this.config.name}] received readyok — engine is ready`)
 
     this.status = 'ready'
     this.emit('ready')
@@ -108,7 +98,6 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
     options: AnalysisOptions = {},
     onProgress?: (lines: AnalysisLine[]) => void
   ): Promise<AnalysisLine[]> {
-    console.log(`[UCIEngine:${this.config.name}] analyze() called`, { fen, options })
     this.ensureReady()
     this.status = 'analyzing'
 
@@ -119,17 +108,14 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
     // trailing waitForResponse kept status='analyzing', causing the next
     // analyze() call to throw "Engine is not ready".
     const multipv = options.multipv ?? 1
-    console.log(`[UCIEngine:${this.config.name}] setting MultiPV to ${multipv}`)
     this.sendCommand(`setoption name MultiPV value ${multipv}`)
     await this.waitForResponse('isready', 'readyok', READY_TIMEOUT_MS)
 
     this.sendCommand(`position fen ${fen}`)
 
     const goCommand = this.buildGoCommand(options)
-    console.log(`[UCIEngine:${this.config.name}] sending go command: ${goCommand}`)
 
     const lines = await this.collectAnalysis(goCommand, onProgress)
-    console.log(`[UCIEngine:${this.config.name}] analysis complete — ${lines.length} line(s) returned`)
 
     // Set status immediately — no trailing async work so stopAndWait() callers
     // see 'ready' as soon as the next microtask runs after bestmove fires.
@@ -149,7 +135,6 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
     fen: string,
     options: AnalysisOptions = {},
   ): Promise<{ lines: AnalysisLine[]; policy: Map<string, number> }> {
-    console.log(`[UCIEngine:${this.config.name}] analyzeWithPolicy() called`, { fen, options })
     this.ensureReady()
     this.status = 'analyzing'
 
@@ -160,12 +145,8 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
     this.sendCommand(`position fen ${fen}`)
 
     const goCommand = this.buildGoCommand(options)
-    console.log(`[UCIEngine:${this.config.name}] analyzeWithPolicy — go: ${goCommand}`)
 
     const { lines, policy } = await this.collectAnalysisWithPolicy(goCommand)
-    console.log(
-      `[UCIEngine:${this.config.name}] analyzeWithPolicy complete — ${lines.length} line(s), ${policy.size} policy entries`
-    )
 
     this.status = 'ready'
     return { lines, policy }
@@ -231,7 +212,6 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
       console.error(`[UCIEngine:${this.config.name}] sendCommand failed — ${err} (tried to send: "${command}")`)
       throw new Error(err)
     }
-    console.log(`[UCIEngine:${this.config.name}] >> ${command}`)
     this.process.stdin.write(command + '\n')
   }
 
@@ -253,8 +233,6 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
   }
 
   private processLine(line: string): void {
-    console.log(`[UCIEngine:${this.config.name}] << ${line}`)
-
     // Parse engine identity
     if (line.startsWith('id name ')) {
       this.engineName = line.substring(8)
@@ -286,10 +264,8 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
     if (line.startsWith('bestmove ')) {
       const bestmove = parseBestMove(line)
       if (bestmove) {
-        console.log(`[UCIEngine:${this.config.name}] bestmove received:`, bestmove)
         this.emit('bestmove', bestmove)
       } else {
-        console.log(`[UCIEngine:${this.config.name}] terminal position — no legal moves (${line})`)
         this.emit('bestmove', { move: '', ponder: undefined })
       }
       return
@@ -383,8 +359,6 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
    */
   private waitForResponse(command: string, expected: string, timeoutMs: number): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      console.log(`[UCIEngine:${this.config.name}] waitForResponse — sending "${command}", expecting "${expected}" within ${timeoutMs}ms`)
-
       const timeout = setTimeout(() => {
         console.error(`[UCIEngine:${this.config.name}] TIMEOUT — never received "${expected}" after ${timeoutMs}ms (sent "${command}")`)
         cleanup()
@@ -394,7 +368,6 @@ export class UCIEngine extends EventEmitter<EngineEvents> {
       const onData = (data: Buffer) => {
         const text = data.toString()
         if (text.includes(expected)) {
-          console.log(`[UCIEngine:${this.config.name}] waitForResponse — received "${expected}"`)
           cleanup()
           resolve()
         }

@@ -8,7 +8,7 @@ import { buildConfigHash } from 'src/services/analysis/PositionQueueManager'
 import { ANALYSIS_PRESETS } from 'src/database/analysis/types'
 import type { AnalysisModeConfig } from 'src/database/analysis/types'
 
-import '../../services/analysis/events'
+import '../../../services/analysis/events'
 
 declare module 'src/ipc/handlers' {
   export interface IpcChannels {

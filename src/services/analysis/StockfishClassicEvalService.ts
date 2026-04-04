@@ -113,6 +113,14 @@ export class StockfishClassicEvalService {
   private lineBuffer = ''
   private handlers: LineHandler[] = []
 
+  /**
+   * Serializes evalPosition calls. Each call awaits the previous one so that
+   * only one `eval` command is in-flight at a time. Prevents a cancelled
+   * position machine's in-flight call from leaving a stale handler that
+   * consumes the response meant for the next call.
+   */
+  private evalQueue: Promise<PositionalFeatures> = Promise.resolve(defaultFeatures())
+
   constructor(private readonly binaryPath: string) {}
 
   async initialize(): Promise<void> {
@@ -136,21 +144,30 @@ export class StockfishClassicEvalService {
       console.error('[StockfishClassic] process error:', err.message)
     })
 
-    this.process.on('exit', (code) => {
-      console.log(`[StockfishClassic] process exited (code ${code})`)
+    this.process.on('exit', () => {
       this.process = null
     })
 
     await this.waitFor('uci', 'uciok', INIT_TIMEOUT_MS)
     await this.waitFor('isready', 'readyok', INIT_TIMEOUT_MS)
-    console.log('[StockfishClassic] initialized')
   }
 
   /**
    * Run a static evaluation for the given FEN and return parsed positional features.
-   * Must be called sequentially — concurrent calls are not supported.
+   * Calls are automatically serialized: if a previous eval is still in-flight
+   * (e.g. from a cancelled position machine), the new call waits for it to
+   * finish before sending its own command. This prevents stale handlers from
+   * consuming responses meant for a later call.
    */
-  async evalPosition(fen: string): Promise<PositionalFeatures> {
+  evalPosition(fen: string): Promise<PositionalFeatures> {
+    const next = this.evalQueue
+      .catch(() => defaultFeatures())
+      .then(() => this.doEval(fen))
+    this.evalQueue = next.catch(() => defaultFeatures())
+    return next
+  }
+
+  private async doEval(fen: string): Promise<PositionalFeatures> {
     if (!this.process) {
       console.warn('[StockfishClassic] process not running — returning defaults')
       return defaultFeatures()
@@ -161,7 +178,7 @@ export class StockfishClassicEvalService {
 
     const captured: string[] = []
 
-    return new Promise<PositionalFeatures>((resolve, reject) => {
+    return new Promise<PositionalFeatures>((resolve) => {
       const timeout = setTimeout(() => {
         this.removeHandler(handler)
         console.warn('[StockfishClassic] eval timed out, returning defaults')
@@ -170,7 +187,7 @@ export class StockfishClassicEvalService {
 
       const handler: LineHandler = (line) => {
         captured.push(line)
-        if (line.startsWith('Final evaluation:') || line.startsWith('Final evaluation: none')) {
+        if (line.startsWith('Final evaluation:')) {
           clearTimeout(timeout)
           this.removeHandler(handler)
           resolve(parseEvalOutput(captured))

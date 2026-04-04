@@ -6,7 +6,7 @@ import type { ChessGame, ChessGameDataWithAnalysis } from 'src/database/chess/ty
 const CHESS_GAMES_QUERY_KEY = ['chess-games'] as const
 
 interface ChessGameWithAnalysis extends ChessGame {
-  analysisStatus: 'UNANALYZED' | 'ANALYZING' | 'COMPLETE' | null
+  analysisStatus: 'UNANALYZED' | 'PENDING' | 'ANALYZING' | 'COMPLETE' | null
 }
 
 const mapRow = (data: ChessGameDataWithAnalysis): ChessGameWithAnalysis => ({

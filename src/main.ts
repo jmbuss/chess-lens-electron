@@ -47,15 +47,17 @@ const createWindow = (): BrowserWindow => {
 app.on('ready', () => {
   initEngineManager()
   const db = database.getDatabase()
-  registerApi({ ipcHandlerRegistry, db, bus: eventBus })
 
+  // Services that need to be wired before registerApi so handlers can reference them.
   new GameAnalysisScheduler(db, eventBus)
   const positionQueueManager = new PositionQueueManager(db, eventBus)
 
   const mainWindow = createWindow()
 
-  new AnalysisOrchestrator(db, eventBus, positionQueueManager, mainWindow.webContents)
+  const orchestrator = new AnalysisOrchestrator(db, eventBus, positionQueueManager, mainWindow.webContents)
   new SyncCoordinator(db, eventBus, mainWindow.webContents)
+
+  registerApi({ ipcHandlerRegistry, db, bus: eventBus, orchestrator, positionQueueManager })
 
   // Emitted after createWindow so the renderer is alive for progress events
   eventBus.emit('app:started', undefined)

@@ -39,6 +39,18 @@ export class GameAnalysisQueueModel implements BaseModel {
     `).run(gameId, priority, isoNow())
   }
 
+  /**
+   * Reset any rows stuck in `in_progress` back to `pending`. Called on
+   * startup to recover from a previous crash or unclean shutdown.
+   */
+  static resetStaleLocks(db: Database.Database): void {
+    db.prepare(`
+      UPDATE game_analysis_queue
+      SET status = 'pending', started_at = NULL
+      WHERE status = 'in_progress'
+    `).run()
+  }
+
   static markInProgress(db: Database.Database, gameId: string): void {
     db.prepare(`
       UPDATE game_analysis_queue
@@ -97,6 +109,19 @@ export class GameAnalysisQueueModel implements BaseModel {
     `).run(priority, gameId)
   }
 
+  /**
+   * Demote all other pending games (not the given gameId) back to background
+   * priority 3. Called when a game is user-focused so previously-boosted games
+   * don't compete at the same priority level.
+   */
+  static demoteOthers(db: Database.Database, gameId: string): void {
+    db.prepare(`
+      UPDATE game_analysis_queue
+      SET priority = 3
+      WHERE game_id != ? AND priority < 3 AND status = 'pending'
+    `).run(gameId)
+  }
+
   // ---------------------------------------------------------------------------
   // Reads
   // ---------------------------------------------------------------------------
@@ -107,7 +132,7 @@ export class GameAnalysisQueueModel implements BaseModel {
         .prepare(`
         SELECT * FROM game_analysis_queue
         WHERE status = 'pending'
-        ORDER BY priority DESC, queued_at ASC
+        ORDER BY priority ASC, queued_at ASC
         LIMIT 1
       `)
         .get() as GameAnalysisQueueRow | undefined) ?? null

@@ -37,22 +37,30 @@ export class PositionQueueManager {
    * position_analysis. Called by the orchestrator when starting a game,
    * and by onPgnMutated when the user mutates the tree.
    *
-   * INSERT OR IGNORE means existing complete rows are untouched.
-   * Priority is boosted if the incoming priority is numerically lower
-   * (higher urgency) than the stored value.
+   * `upsertPending` only ever raises urgency on conflict — it will not demote
+   * a row that is already at a higher urgency than the incoming priority.
    *
-   * @param pgn        Full PGN string for the game.
-   * @param configHash SHA-256 prefix of the serialized analysis config.
-   * @param currentFen Optional FEN to treat as highest-priority (priority 1).
-   *                   All other positions default to priority 3.
+   * @param pgn           Full PGN string for the game.
+   * @param configHash    SHA-256 prefix of the serialized analysis config.
+   * @param currentFen    Optional FEN to set to priority 1 (user-focused).
+   * @param otherPriority Priority assigned to all FENs that are not currentFen.
+   *                      Pass 2 when the entire game is being user-focused so
+   *                      its positions sit above background games (priority 3).
+   *                      Defaults to 3 for background / orchestrator-initiated
+   *                      populate calls.
    */
-  populateFromPgn(pgn: string, configHash: string, currentFen?: string): void {
+  populateFromPgn(
+    pgn: string,
+    configHash: string,
+    currentFen?: string,
+    otherPriority: number = 3,
+  ): void {
     const { root } = parseGameTree(pgn)
     const allFens = collectAllFens(root)
 
     const insertAll = this.db.transaction(() => {
       for (const { fen } of allFens) {
-        const priority = fen === currentFen ? 1 : 3
+        const priority = fen === currentFen ? 1 : otherPriority
         PositionAnalysisModel.upsertPending(this.db, fen, configHash, priority)
       }
     })

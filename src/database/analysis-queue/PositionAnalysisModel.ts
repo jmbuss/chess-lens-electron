@@ -123,6 +123,27 @@ export class PositionAnalysisModel implements BaseModel {
   }
 
   /**
+   * Demote all pending positions that do NOT belong to the given game back to
+   * background priority 3. Called when a game is user-focused so previously-
+   * boosted positions from other games don't compete at elevated priority.
+   * Uses game_positions to identify which FENs belong to the focused game.
+   */
+  static demoteNonGamePositions(
+    db: Database.Database,
+    gameId: string,
+    configHash: string,
+  ): void {
+    db.prepare(`
+      UPDATE position_analysis
+      SET priority = 3
+      WHERE fen NOT IN (SELECT fen FROM game_positions WHERE game_id = ?)
+        AND config_hash = ?
+        AND status = 'pending'
+        AND priority < 3
+    `).run(gameId, configHash)
+  }
+
+  /**
    * Bulk upsert a batch of positions within a single transaction.
    */
   static bulkUpsert(db: Database.Database, rows: PositionAnalysisUpsertRow[]): void {

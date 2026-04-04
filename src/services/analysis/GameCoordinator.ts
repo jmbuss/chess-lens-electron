@@ -172,10 +172,14 @@ export class GameCoordinator {
         nextId,
         preset: this.backgroundPreset,
       }
-      GameAnalysisModel.save(this.db, data)
     }
 
     this.hydrateTreeFromCache(data.tree)
+    // Always persist after hydration so the DB reflects the hydrated state
+    // (including any nodes populated from the position_analysis cache).
+    // Without this, the frontend would query the old UNANALYZED tree and
+    // cache-hydrated nodes would never be pushed to the UI.
+    GameAnalysisModel.save(this.db, data)
 
     this.gameInput = {
       data,

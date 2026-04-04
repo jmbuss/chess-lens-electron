@@ -8,6 +8,7 @@ import { formatDateTime, ISO_DATE } from 'src/renderer/utils/formatDateTime';
 import { formatTimeControl } from 'src/renderer/utils/formatTimeControl'
 import { computed } from 'vue';
 import ChessTerminationBadge from 'src/renderer/components/Chess/ChessTerminationBadge.vue'
+import UIIcon from 'src/renderer/components/UIIcon.vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()

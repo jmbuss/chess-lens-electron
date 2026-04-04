@@ -102,7 +102,7 @@ watch(isComplete, (val) => {
 watch(() => gameNavigator.currentFen.value, (fen) => {
   if (!fen) return
   const node = analysisByFen.value.get(fen)
-  if (node) navigateToPosition(node.id)
+  if (node) navigateToPosition(node.id, fen)
 })
 </script>
 

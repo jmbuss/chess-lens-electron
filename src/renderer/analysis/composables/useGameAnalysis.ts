@@ -4,7 +4,6 @@ import { queryClient } from 'src/renderer/query/queryClient'
 import { ipcService } from 'src/ipc/renderer'
 import type { IpcResponse } from 'src/ipc/types'
 import type {
-  AnalysisPreset,
   AnalysisNode,
   GameAnalysisData,
   GameFSMState,
@@ -78,6 +77,10 @@ function findNodeByFen(root: AnalysisNode, fen: string): AnalysisNode | null {
 export const useGameAnalysis = (gameId: MaybeRef<string>) => {
   const queryKey = computed(() => ['game-analysis', toValue(gameId)] as const)
 
+  watchEffect(() => {
+    console.log('gameId', toValue(gameId))
+  })
+
   const { data: gameAnalysis, isLoading } = useQuery({
     queryKey,
     queryFn: () =>
@@ -89,19 +92,6 @@ export const useGameAnalysis = (gameId: MaybeRef<string>) => {
   watchEffect(() => {
     console.log('gameAnalysis', gameAnalysis.value)
   })
-
-  const { mutate: runAnalysis, isPending: isAnalyzing } = useMutation({
-    mutationFn: (opts: { pgn: string; preset: AnalysisPreset; userRating?: number }) =>
-      ipcService.send('analysis:analyzeGame', {
-        gameId: toValue(gameId),
-        ...opts,
-      }),
-    onSuccess: () => {
-      // initialize() ran synchronously before responding so the record exists.
-      // Invalidate to fetch the initial tree before patches arrive.
-      queryClient.invalidateQueries({ queryKey: queryKey.value })
-    },
-  }, queryClient)
 
   const { mutate: addVariation } = useMutation({
     mutationFn: (params: {
@@ -123,42 +113,44 @@ export const useGameAnalysis = (gameId: MaybeRef<string>) => {
    * Tell the game machine which position the user has navigated to. The
    * machine transitions to STOP_AND_WAIT, drains engines, then prioritizes
    * this node in POSITION_ANALYSIS before resuming background work.
+   *
+   * Also updates the DB priority for the FEN so the position_analysis row
+   * reflects the user's focus, enabling correct cache-probe ordering.
    */
-  const navigateToPosition = (nodeId: number): void => {
+  const navigateToPosition = (nodeId: number, fen: string): void => {
     ipcService.send('analysis:studyPosition', { gameId: toValue(gameId), nodeId })
+    ipcService.send('position:prioritize', { fen })
   }
 
   // ==================== Auto-start ====================
 
   const { chessGame, isChessGameLoading } = useChessGame({ gameId })
   const { user, isUserLoading } = useUser()
-  const { platforms, isPlatformsLoading } = usePlatforms()
+  const { isPlatformsLoading } = usePlatforms()
 
-  const userRating = computed((): number | undefined => {
-    const game = chessGame.value
-    if (!game) return undefined
-    const account = platforms.value.find(p => p.platform === game.platform)
-    if (!account) return undefined
-    const username = account.platformUsername.toLowerCase()
-    if (game.white.username.toLowerCase() === username) return game.white.rating
-    if (game.black.username.toLowerCase() === username) return game.black.rating
-    return undefined
-  })
+  const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
   const isPrerequisitesReady = computed(() => {
     if (isChessGameLoading.value || isUserLoading.value) return false
-    if (!chessGame.value?.pgn) return false
+    if (!chessGame.value) return false
     if (user.value?.id && isPlatformsLoading.value) return false
     return true
   })
 
-  let hasStartedAnalysis = false
+  let hasPrioritized = false
 
-  watch(isPrerequisitesReady, (ready) => {
-    if (!ready || hasStartedAnalysis) return
-    hasStartedAnalysis = true
-    console.log('[useGameAnalysis] Starting analysis', { userRating: userRating.value })
-    runAnalysis({ pgn: chessGame.value!.pgn, preset: 'fast', userRating: userRating.value })
+  watch(isPrerequisitesReady, async (ready) => {
+    if (!ready || hasPrioritized) return
+    hasPrioritized = true
+    console.log('[useGameAnalysis] Prioritizing game for analysis')
+    await ipcService.send('game:prioritize', {
+      gameId: toValue(gameId),
+      currentFen: STARTING_FEN,
+    })
+    // The orchestrator calls coordinator.initialize() asynchronously after
+    // receiving game:queue:updated. Invalidate now so the query re-fetches
+    // the game_analyses record once it has been created.
+    queryClient.invalidateQueries({ queryKey: queryKey.value })
   }, { immediate: true })
 
   // ==================== IPC handlers ====================
@@ -283,8 +275,6 @@ export const useGameAnalysis = (gameId: MaybeRef<string>) => {
     isComplete,
     progress,
     isLoading,
-    runAnalysis,
-    isAnalyzing,
     addVariation,
     navigateToPosition,
   }

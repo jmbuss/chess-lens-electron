@@ -5,11 +5,12 @@ import { IpcRequest, IpcResponse } from 'src/ipc/types'
 import type { EventBus } from 'src/events'
 import { GameAnalysisQueueModel } from 'src/database/analysis-queue/GameAnalysisQueueModel'
 import { PositionAnalysisModel } from 'src/database/analysis-queue/PositionAnalysisModel'
-import { buildConfigHash } from 'src/services/analysis/PositionQueueManager'
+import { buildConfigHash, type PositionQueueManager } from 'src/services/analysis/PositionQueueManager'
+import { ChessGameModel } from 'src/database/chess/model'
 import { ANALYSIS_PRESETS } from 'src/database/analysis/types'
 import type { AnalysisModeConfig } from 'src/database/analysis/types'
 
-import '../../services/analysis/events'
+import '../../../services/analysis/events'
 
 declare module 'src/ipc/handlers' {
   export interface IpcChannels {
@@ -26,6 +27,7 @@ export class PrioritizeGameHandler extends IpcHandler {
   constructor(
     private db: Database.Database,
     private bus: EventBus,
+    private positionQueueManager: PositionQueueManager,
   ) {
     super()
   }
@@ -48,18 +50,35 @@ export class PrioritizeGameHandler extends IpcHandler {
     }
     const configHash = buildConfigHash(config)
 
-    // 1. Bump the game itself to the highest priority
-    GameAnalysisQueueModel.updatePriority(this.db, gameId, 1)
+    // 1. Demote all other games back to background priority 3 so the focused
+    //    game is the only one at priority 1.
+    GameAnalysisQueueModel.demoteOthers(this.db, gameId)
 
-    // 2. Lift all positions for this game to priority 2 (if currently lower urgency)
-    PositionAnalysisModel.updatePriorityForGame(this.db, gameId, configHash, 2)
+    // 2. Demote positions that don't belong to this game back to priority 3.
+    //    Must run BEFORE populateFromPgn so those rows don't compete with the
+    //    newly-elevated positions for this game.
+    PositionAnalysisModel.demoteNonGamePositions(this.db, gameId, configHash)
 
-    // 3. Boost the currently-viewed position to priority 1
-    PositionAnalysisModel.updatePriority(this.db, currentFen, configHash, 1)
+    // 3. Enqueue the game if not present, otherwise bump to priority 1.
+    if (GameAnalysisQueueModel.exists(this.db, gameId)) {
+      GameAnalysisQueueModel.updatePriority(this.db, gameId, 1)
+    } else {
+      GameAnalysisQueueModel.enqueue(this.db, gameId, 1)
+    }
 
-    // 4. Notify downstream services
+    // 4. Populate position_analysis rows for every FEN in this game's PGN:
+    //    - currentFen → priority 1 (user-focused position)
+    //    - all other positions in this game → priority 2 (game-context)
+    //    upsertPending only raises urgency on conflict, so the currentFen row
+    //    set to 1 here is preserved when the orchestrator later calls
+    //    populateFromPgn without a currentFen (which passes priority 3).
+    const game = ChessGameModel.findById(this.db, gameId)
+    if (game?.pgn) {
+      this.positionQueueManager.populateFromPgn(game.pgn, configHash, currentFen, 2)
+    }
+
+    // 5. Notify downstream services — orchestrator re-evaluates the queue.
     this.bus.emit('game:queue:updated', { reason: 'priority_changed' })
-    this.bus.emit('position:queue:updated', { reason: 'priority_changed' })
 
     return { success: true, data: { success: true } }
   }

@@ -34,9 +34,6 @@ export function initEngineManager(): void {
   const cachePath = app.getPath('userData')
 
   engineManager = new EngineManager(resourcesPath, cachePath)
-  console.log('[EngineManager] Initialized')
-  console.log(`  Resources: ${resourcesPath}`)
-  console.log(`  Cache: ${cachePath}`)
 }
 
 /**
@@ -103,12 +100,10 @@ export function stopStockfish(): void {
  * Should be called on app.before-quit.
  */
 export async function shutdownEngines(): Promise<void> {
-  console.log('[EngineManager] Shutting down all engines...')
   if (engineManager) {
     await engineManager.quitAll()
   }
   stockfishEngine = null
   maiaEngines.clear()
   engineManager = null
-  console.log('[EngineManager] All engines shut down')
 }

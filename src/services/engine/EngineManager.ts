@@ -173,7 +173,6 @@ export class EngineManager {
     const directBinary = this.findExecutableRecursive(stockfishDir, 'stockfish')
     if (directBinary) {
       this.ensureExecutable(directBinary)
-      console.log(`[EngineManager] Stockfish binary found at ${directBinary}`)
       return directBinary
     }
 
@@ -198,7 +197,6 @@ export class EngineManager {
     const tarPath = path.join(stockfishDir, tarFile)
     const extractDir = path.join(stockfishCacheDir, '_extract')
 
-    console.log(`[EngineManager] Extracting Stockfish from ${tarPath}...`)
     fs.mkdirSync(extractDir, { recursive: true })
     execSync(`tar -xf "${tarPath}" -C "${extractDir}"`)
 
@@ -212,7 +210,6 @@ export class EngineManager {
     this.ensureExecutable(cachedBinary)
     fs.rmSync(extractDir, { recursive: true, force: true })
 
-    console.log(`[EngineManager] Stockfish binary extracted and cached at ${cachedBinary}`)
     return cachedBinary
   }
 
@@ -234,7 +231,6 @@ export class EngineManager {
     }
 
     this.ensureExecutable(binary)
-    console.log(`[EngineManager] Stockfish classic binary found at ${binary}`)
     return binary
   }
 

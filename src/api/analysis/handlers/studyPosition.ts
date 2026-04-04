@@ -1,7 +1,7 @@
 import { IpcMainEvent } from 'electron'
 import { IpcHandler } from 'src/ipc/IPCHandler'
 import { IpcRequest, IpcResponse } from 'src/ipc/types'
-import { GameCoordinatorRegistry } from '../GameCoordinatorRegistry'
+import type { AnalysisOrchestrator } from 'src/services/analysis/AnalysisOrchestrator'
 
 declare module 'src/ipc/handlers' {
   export interface IpcChannels {
@@ -15,6 +15,10 @@ declare module 'src/ipc/handlers' {
 export class StudyPositionHandler extends IpcHandler {
   static readonly channel = 'analysis:studyPosition' as const
 
+  constructor(private orchestrator: AnalysisOrchestrator) {
+    super()
+  }
+
   async handle(
     _event: IpcMainEvent,
     request: IpcRequest<{ gameId: string; nodeId: number }>,
@@ -24,7 +28,7 @@ export class StudyPositionHandler extends IpcHandler {
       return { success: false, error: 'gameId and nodeId are required' }
     }
 
-    const coordinator = GameCoordinatorRegistry.get(p.gameId)
+    const coordinator = this.orchestrator.getActiveCoordinator(p.gameId)
     if (!coordinator) {
       return { success: true, data: { queued: false } }
     }

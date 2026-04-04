@@ -125,7 +125,7 @@ export interface ChessGame {
  */
 export interface ChessGameWithMeta extends ChessGame {
   isFavorite: boolean
-  analysisStatus: 'UNANALYZED' | 'ANALYZING' | 'COMPLETE' | null
+  analysisStatus: 'UNANALYZED' | 'PENDING' | 'ANALYZING' | 'COMPLETE' | null
 }
 
 /**
@@ -152,8 +152,9 @@ export interface ChessGameData {
 }
 
 /**
- * Database representation with analysis status from LEFT JOIN on game_analyses.
+ * Database representation with analysis status: `game_analysis_queue` when
+ * present, else FSM from `game_analyses.state`.
  */
 export interface ChessGameDataWithAnalysis extends ChessGameData {
-  analysisStatus: 'UNANALYZED' | 'ANALYZING' | 'COMPLETE' | null
+  analysisStatus: 'UNANALYZED' | 'PENDING' | 'ANALYZING' | 'COMPLETE' | null
 }

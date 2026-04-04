@@ -27,10 +27,6 @@ export class EvalMaiaMovesService {
 
   async evaluate(input: EvalMaiaMovesInput): Promise<EvalMaiaMovesOutput> {
     const { fen, engineResult, maiaFloorResult, maiaCeilingResult } = input
-    console.log('evaluating maia moves', fen)
-    console.log('engineResult', engineResult)
-    console.log('maiaFloorResult', maiaFloorResult)
-    console.log('maiaCeilingResult', maiaCeilingResult)
 
     // engineResult.lines are already normalized to white's perspective by GameCoordinator.
     const stockfishScoreMap = this.buildStockfishScoreMap(engineResult)

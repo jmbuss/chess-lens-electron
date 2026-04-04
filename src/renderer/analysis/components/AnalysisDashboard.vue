@@ -9,7 +9,8 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
     </div>
 
     <ResizablePanelGroup direction="horizontal" class="dashboard-main">
-      <ResizablePanel :default-size="15" :min-size="12" collapsible :collapsed-size="0">
+      <!-- default-size values in each group must sum to 100 (reka-ui SplitterGroup) -->
+      <ResizablePanel :default-size="17" :min-size="12" collapsible :collapsed-size="0">
         <div class="panel-content border-t border-border">
           <slot name="left" />
         </div>
@@ -17,9 +18,9 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 
       <ResizableHandle with-handle />
 
-      <ResizablePanel :default-size="50" :min-size="25">
+      <ResizablePanel :default-size="56" :min-size="25">
         <ResizablePanelGroup direction="vertical">
-          <ResizablePanel :default-size="75" :min-size="25" collapsible :collapsed-size="0">
+          <ResizablePanel :default-size="68" :min-size="25" collapsible :collapsed-size="0">
             <div class="panel-content border-t border-border">
               <slot name="centerTop" />
             </div>
@@ -27,7 +28,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 
           <ResizableHandle with-handle />
 
-          <ResizablePanel :default-size="35" :min-size="15" collapsible :collapsed-size="0">
+          <ResizablePanel :default-size="32" :min-size="15" collapsible :collapsed-size="0">
             <div class="panel-content">
               <slot name="centerBottom" />
             </div>
@@ -37,7 +38,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 
       <ResizableHandle with-handle />
 
-      <ResizablePanel :default-size="25" :min-size="12" collapsible :collapsed-size="0">
+      <ResizablePanel :default-size="27" :min-size="12" collapsible :collapsed-size="0">
         <div class="panel-content border-t border-border">
           <slot name="right" />
         </div>

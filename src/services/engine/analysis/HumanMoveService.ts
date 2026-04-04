@@ -59,7 +59,6 @@ export class HumanMoveService {
     // Terminal positions (checkmate, stalemate) produce no lines — return
     // an empty array rather than throwing so the pipeline handles them gracefully.
     if (lines.length === 0) {
-      console.log(`[HumanMoveService] Maia (${rating}) — no legal moves (terminal position): ${fen}`)
       return []
     }
 

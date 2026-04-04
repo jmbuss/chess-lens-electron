@@ -1,7 +1,7 @@
 import { IpcMainEvent } from 'electron'
 import { IpcHandler } from 'src/ipc/IPCHandler'
 import { IpcRequest, IpcResponse } from 'src/ipc/types'
-import { GameCoordinatorRegistry } from '../GameCoordinatorRegistry'
+import type { AnalysisOrchestrator } from 'src/services/analysis/AnalysisOrchestrator'
 
 interface StopAnalysisParams {
   gameId: string
@@ -19,6 +19,10 @@ declare module 'src/ipc/handlers' {
 export class StopAnalysisHandler extends IpcHandler {
   static readonly channel = 'analysis:stopAnalysis' as const
 
+  constructor(private orchestrator: AnalysisOrchestrator) {
+    super()
+  }
+
   async handle(
     _event: IpcMainEvent,
     request: IpcRequest<StopAnalysisParams>,
@@ -28,16 +32,9 @@ export class StopAnalysisHandler extends IpcHandler {
       return { success: false, error: 'gameId is required' }
     }
 
-    const coordinator = GameCoordinatorRegistry.get(gameId)
-    if (coordinator) {
-      GameCoordinatorRegistry.clear(gameId)
-      // Fire-and-forget stop: engines will drain in the background. Any in-
-      // flight IPC pushes are safe because saveAndPushNode/saveAndPushGameState
-      // already guard against destroyed senders.
-      coordinator.stop().catch((err) => {
-        console.error('[analysis:stopAnalysis] Error stopping coordinator:', err)
-      })
-    }
+    // Stop the active coordinator for this game and re-evaluate the queue so
+    // the orchestrator can pick up the next pending game automatically.
+    await this.orchestrator.stopGame(gameId)
 
     return { success: true, data: { gameId } }
   }

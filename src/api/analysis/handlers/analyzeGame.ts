@@ -2,9 +2,11 @@ import Database from 'better-sqlite3'
 import { IpcMainEvent } from 'electron'
 import { IpcHandler } from 'src/ipc/IPCHandler'
 import { IpcRequest, IpcResponse } from 'src/ipc/types'
-import { GameCoordinator } from 'src/services/analysis/GameCoordinator'
-import { GameCoordinatorRegistry } from '../GameCoordinatorRegistry'
+import type { EventBus } from 'src/events'
+import { GameAnalysisQueueModel } from 'src/database/analysis-queue/GameAnalysisQueueModel'
 import type { AnalysisPreset, AnalysisNode, GameFSMState } from 'src/database/analysis/types'
+
+import '../../../services/analysis/events'
 
 declare module 'src/ipc/handlers' {
   export interface IpcChannels {
@@ -42,49 +44,33 @@ declare module 'src/ipc/handlers' {
 export class AnalyzeGameHandler extends IpcHandler {
   static readonly channel = 'analysis:analyzeGame' as const
 
-  constructor(private db: Database.Database) {
+  constructor(
+    private db: Database.Database,
+    private bus: EventBus,
+  ) {
     super()
   }
 
   async handle(
-    event: IpcMainEvent,
+    _event: IpcMainEvent,
     request: IpcRequest<{ gameId: string; pgn: string; preset: AnalysisPreset; userRating?: number }>,
   ): Promise<IpcResponse<{ gameId: string }>> {
-    if (!request.params?.gameId || !request.params?.pgn || !request.params?.preset) {
-      return { success: false, error: 'gameId, pgn, and preset are required' }
+    if (!request.params?.gameId || !request.params?.preset) {
+      return { success: false, error: 'gameId and preset are required' }
     }
 
-    const { gameId, pgn, preset, userRating } = request.params
+    const { gameId } = request.params
 
-    // Engines are global singletons — only one coordinator can use them at a
-    // time. Stop and drain every running coordinator before starting a new one
-    // so there is no contention over Stockfish / Maia.
-    await GameCoordinatorRegistry.stopAll()
+    // Enqueue the game if not already present, or bump its priority to 1 so
+    // the orchestrator picks it up immediately.
+    if (GameAnalysisQueueModel.exists(this.db, gameId)) {
+      GameAnalysisQueueModel.updatePriority(this.db, gameId, 1)
+    } else {
+      GameAnalysisQueueModel.enqueue(this.db, gameId, 1)
+    }
 
-    const coordinator = new GameCoordinator(
-      this.db,
-      event.sender,
-      gameId,
-      pgn,
-      preset,
-      userRating,
-    )
-
-    coordinator.initialize()
-
-    // Register before start() so navigate events from other handlers
-    // can reach the coordinator as soon as the actor is running.
-    GameCoordinatorRegistry.register(gameId, coordinator)
-
-    coordinator.start().catch((err) => {
-      console.error('[analysis:analyzeGame] Coordinator error:', err)
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('analysis:game-state-update', {
-          success: false,
-          error: err instanceof Error ? err.message : String(err),
-        })
-      }
-    })
+    // Signal the orchestrator to re-evaluate the queue.
+    this.bus.emit('game:queue:updated', { reason: 'priority_changed', gameId })
 
     return { success: true, data: { gameId } }
   }

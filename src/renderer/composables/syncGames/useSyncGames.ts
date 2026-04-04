@@ -1,14 +1,11 @@
-import { SyncStatusResponse } from 'src/api/sync/handlers'
-import { SyncPlatform } from 'src/database/sync/types'
 import { ipcService } from 'src/ipc/renderer'
 import { onMounted, onUnmounted, ref } from 'vue'
-import { useUser } from '../user/useUser'
 import { usePlatforms } from '../platforms/usePlatforms'
 import { SyncProgress } from 'src/services/sync/types'
 import { queryClient } from 'src/renderer/query/queryClient'
 
 export const useSyncGames = () => {
-  const status = ref<SyncStatusResponse | null>(null)
+  const status = ref<SyncProgress | null>(null)
   const error = ref<string | null>(null)
   const isLoading = ref(false)
   const isError = ref(false)
@@ -45,7 +42,7 @@ export const useSyncGames = () => {
     }
   }
 
-  const handleProgress = (progress: SyncStatusResponse & { error?: string }) => {
+  const handleProgress = (progress: SyncProgress) => {
     status.value = progress
     isLoading.value = progress.status === 'in_progress'
     error.value = progress.error || null
@@ -55,11 +52,11 @@ export const useSyncGames = () => {
   onMounted(() => {
     startSync()
 
-    ipcService.on('sync:progress', handleProgress)
+    ipcService.onPush('sync:progress', handleProgress)
   })
 
   onUnmounted(() => {
-    ipcService.off('sync:progress', handleProgress)
+    ipcService.offPush('sync:progress', handleProgress)
   })
 
   return {

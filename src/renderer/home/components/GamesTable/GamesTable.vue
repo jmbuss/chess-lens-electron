@@ -218,7 +218,12 @@ const columns: ColumnDef<GamesTableRow>[] = [
       h(SortableHeader, { column, label: 'Analyzed' }),
       h(ColumnFilterPopover, { column }, () => h(FacetedCheckboxFilter, {
         column,
-        labels: { COMPLETE: 'Complete', ANALYZING: 'Analyzing', UNANALYZED: 'Not Analyzed' },
+        labels: {
+          COMPLETE: 'Complete',
+          ANALYZING: 'Analyzing',
+          PENDING: 'Pending',
+          UNANALYZED: 'Not Analyzed',
+        },
       })),
     ]),
     accessorFn: (row) => row.analysisStatus ?? 'UNANALYZED',

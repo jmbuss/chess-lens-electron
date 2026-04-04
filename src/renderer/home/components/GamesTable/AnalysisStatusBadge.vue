@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { Loader2, CheckCircle2, Circle } from 'lucide-vue-next'
+import { Loader2, CheckCircle2, Circle, Hourglass } from 'lucide-vue-next'
 
 defineProps<{
-  status: 'UNANALYZED' | 'ANALYZING' | 'COMPLETE' | null
+  status: 'UNANALYZED' | 'PENDING' | 'ANALYZING' | 'COMPLETE' | null
 }>()
 </script>
 
@@ -15,6 +15,10 @@ defineProps<{
     <template v-else-if="status === 'ANALYZING'">
       <Loader2 class="size-3.5 text-yellow-500 animate-spin" />
       <span class="text-yellow-500">Analyzing</span>
+    </template>
+    <template v-else-if="status === 'PENDING'">
+      <Hourglass class="size-3.5 text-sky-500" />
+      <span class="text-sky-500">Pending</span>
     </template>
     <template v-else>
       <Circle class="size-3.5 text-muted-foreground" />
