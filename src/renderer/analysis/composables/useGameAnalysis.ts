@@ -149,7 +149,7 @@ export const useGameAnalysis = (gameId: MaybeRef<string>) => {
     })
     // The orchestrator calls coordinator.initialize() asynchronously after
     // receiving game:queue:updated. Invalidate now so the query re-fetches
-    // the game_analyses record once it has been created.
+    // the analysis state once it has been hydrated.
     queryClient.invalidateQueries({ queryKey: queryKey.value })
   }, { immediate: true })
 

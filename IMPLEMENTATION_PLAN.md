@@ -1280,6 +1280,10 @@ No data migration is needed. The new tables are additive. Old `game_analyses` da
 
 The singleton Stockfish + Maia engines are a bottleneck. The orchestrator ensures only one position is analyzed at a time, same as today. The new architecture doesn't change this constraint — it only changes *which* position gets priority.
 
+### Engine reliability (timeouts / failures)
+
+**Note:** The engines—especially Stockfish Classic—sometimes time out or fail during a position step. The app does **not** automatically re-request or retry those failures; analysis moves on (or leaves the position in a failed state) without a second attempt. Why it fails in those cases is **not well understood** (process hang, IPC, WASM limits, preset-specific behavior, etc.) and would benefit from targeted logging or reproduction work if we want to harden this path.
+
 ### Rollback
 
 The `GameCoordinator` and `gameMachine` are never removed — they are the analysis runtime throughout. The new code (event bus, orchestrator, queue tables) is additive. At any phase boundary, the new services can be disabled and the old `GameCoordinatorRegistry` re-enabled. Phase 8 (removing the registry and migrating IPC handlers) is the point of no return.
@@ -1322,11 +1326,12 @@ Work to schedule **after** the phases above are implemented and stable — not b
 
 ### Games list: full refetch on every `sync:progress`
 
-**Observed behavior:** `useSyncGames` (used from `AppSidebar.vue`) calls `queryClient.invalidateQueries({ queryKey: ['chess-games'] })` on **every** `sync:progress` event. That forces a full `chess:getAll` refetch and remaps the entire games list; `GamesTable` re-renders each time. Progress is emitted at least twice per queued month (month start + month end) plus start/end, so a long backfill triggers many full-list refetches and the UI feels sluggish.
+**Observed behavior:** `useSyncGames` (used from `AppSidebar.vue`) calls `queryClient.invalidateQueries({ queryKey: ['chess-games'] })` on **every** `sync:progress` event. That forces a full `chess:getAll` refetch and remaps the entire games list; `GamesTable` re-renders each time. Progress is emitted at least twice per queued month (month start + month end) plus start/end, so a long backfill triggers many full-list refetches and the UI feels sluggish. At the same time, the list is **not reactive** when sync **starts** or when a game **begins** syncing—new rows and sync-related status often do not appear until a later `sync:progress` (or some other refetch path), so the UX can feel both noisy *and* late.
 
 **Follow-up work:**
 
 - **Quick win:** Only invalidate `['chess-games']` when sync leaves `in_progress` (e.g. `completed`, `paused`, or terminal error / `idle` after failure). Keep updating sidebar sync status from every progress tick without touching the query cache.
+- **Sync / per-game start:** Ensure the list updates when sync **starts** or when a game **begins** syncing (e.g. one invalidate or a `game:synced`-style push on worker start / first inserted row), so the UI is not stuck until the first `sync:progress` that happens to touch the query cache.
 - **Optional:** Debounce or throttle if mid-sync refresh is still desired (e.g. at most once every N seconds).
 - **Incremental (larger):** Push newly inserted games (or IDs) to the renderer and merge into the TanStack Query cache with `setQueryData` (similar to analysis node updates in `useGameAnalysis`), avoiding repeated `chess:getAll` during sync. Would likely extend `game:synced`-style payloads or add IPC and a `chess:getByIds` (or equivalent) so rows can be built without a full table scan on the renderer.
 

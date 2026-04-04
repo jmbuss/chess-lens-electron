@@ -3,7 +3,6 @@ import { UserModel } from './user'
 import { PlatformAccountModel } from './platform-account'
 import { ChessGameModel } from './chess'
 import { SyncModel } from './sync'
-import { GameAnalysisModel } from './analysis'
 import { GameFavoritesModel } from './favorites'
 import { GameAnalysisQueueModel } from './analysis-queue/GameAnalysisQueueModel'
 import { PositionAnalysisModel } from './analysis-queue/PositionAnalysisModel'
@@ -14,7 +13,6 @@ export const database = new DatabaseService([
   new PlatformAccountModel(),
   new ChessGameModel(),
   new SyncModel(),
-  new GameAnalysisModel(),
   new GameFavoritesModel(),
   new GameAnalysisQueueModel(),
   new PositionAnalysisModel(),

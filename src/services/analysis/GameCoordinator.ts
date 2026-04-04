@@ -9,7 +9,6 @@ import type { UCIEngine } from 'src/services/engine/UCIEngine'
 import { AnalysisService } from 'src/services/engine/analysis/AnalysisService'
 import { HumanMoveService } from 'src/services/engine/analysis/HumanMoveService'
 import type { HumanMovePrediction } from 'src/services/engine/types'
-import { GameAnalysisModel } from 'src/database/analysis/GameAnalysisModel'
 import { PositionAnalysisModel } from 'src/database/analysis-queue'
 import { GameAnalysisQueueModel } from 'src/database/analysis-queue'
 import type {
@@ -150,7 +149,7 @@ export class GameCoordinator {
    */
   initialize(): void {
     const pgnHash = hashPgn(this.pgn)
-    const existing = GameAnalysisModel.findByGameId(this.db, this.gameId)
+    const existing = GameAnalysisQueueModel.findState(this.db, this.gameId)
     const backgroundConfig = buildConfig('fast', this.userRating)
     const focusConfig = buildConfig('fast', this.userRating)
 
@@ -175,11 +174,9 @@ export class GameCoordinator {
     }
 
     this.hydrateTreeFromCache(data.tree)
-    // Always persist after hydration so the DB reflects the hydrated state
-    // (including any nodes populated from the position_analysis cache).
-    // Without this, the frontend would query the old UNANALYZED tree and
-    // cache-hydrated nodes would never be pushed to the UI.
-    GameAnalysisModel.save(this.db, data)
+    // Persist after hydration so the frontend's initial getGameAnalysis
+    // fetch sees cache-hydrated nodes immediately.
+    GameAnalysisQueueModel.saveState(this.db, data)
 
     this.gameInput = {
       data,
@@ -441,7 +438,7 @@ export class GameCoordinator {
 
   private saveAndPushGameState(context: GameContext, state: GameFSMState): void {
     const data = this.toData(context, state)
-    GameAnalysisModel.save(this.db, data)
+    GameAnalysisQueueModel.saveState(this.db, data)
     if (this.sender.isDestroyed()) return
     this.sender.send('analysis:game-state-update', {
       success: true,
@@ -451,7 +448,7 @@ export class GameCoordinator {
 
   private saveAndPushNode(context: GameContext, node: AnalysisNode): void {
     const data = this.toData(context, context.gameFsmState)
-    GameAnalysisModel.save(this.db, data)
+    GameAnalysisQueueModel.saveState(this.db, data)
     if (this.sender.isDestroyed()) return
     const { children: _children, ...nodeWithoutChildren } = node
     this.sender.send('analysis:node-update', {

@@ -9,4 +9,3 @@ export type {
 } from './types'
 
 export { ANALYSIS_PRESETS } from './types'
-export { GameAnalysisModel } from './GameAnalysisModel'

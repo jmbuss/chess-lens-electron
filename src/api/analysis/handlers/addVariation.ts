@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { IpcMainEvent } from 'electron'
 import { IpcHandler } from 'src/ipc/IPCHandler'
 import { IpcRequest, IpcResponse } from 'src/ipc/types'
-import { GameAnalysisModel } from 'src/database/analysis/GameAnalysisModel'
+import { GameAnalysisQueueModel } from 'src/database/analysis-queue/GameAnalysisQueueModel'
 import type { AnalysisNode, GameFSMState } from 'src/database/analysis/types'
 import type { AnalysisOrchestrator } from 'src/services/analysis/AnalysisOrchestrator'
 
@@ -72,7 +72,7 @@ export class AddVariationHandler extends IpcHandler {
       return { success: false, error: 'gameId, parentFen, fen, and uciMove are required' }
     }
 
-    const state = GameAnalysisModel.findByGameId(this.db, p.gameId)
+    const state = GameAnalysisQueueModel.findState(this.db, p.gameId)
     if (!state?.tree) {
       return { success: false, error: `No analysis found for game ${p.gameId}` }
     }
@@ -107,7 +107,7 @@ export class AddVariationHandler extends IpcHandler {
     }
 
     parent.children.push(newNode)
-    GameAnalysisModel.save(this.db, state)
+    GameAnalysisQueueModel.saveState(this.db, state)
 
     if (!event.sender.isDestroyed()) {
       const { children: _children, ...nodeWithoutChildren } = newNode

@@ -13,6 +13,7 @@ export interface GameAnalysisQueueRow {
   white_stats_json: string | null
   black_stats_json: string | null
   eval_curve_json: string | null
+  state: string | null
 }
 
 export interface GameAnalysisQueueAggregates {

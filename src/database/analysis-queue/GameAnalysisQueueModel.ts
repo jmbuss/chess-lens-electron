@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import type { BaseModel } from '../models/BaseModel'
 import type { GameAnalysisQueueAggregates, GameAnalysisQueueRow } from './types'
+import type { GameAnalysisData } from '../analysis/types'
 import { isoNow } from '../isoTimestamps'
 
 export class GameAnalysisQueueModel implements BaseModel {
@@ -26,6 +27,13 @@ export class GameAnalysisQueueModel implements BaseModel {
       CREATE INDEX IF NOT EXISTS idx_gaq_status_priority
         ON game_analysis_queue(status, priority DESC, queued_at ASC)
     `)
+
+    // Migrate: add state column for the full analysis tree JSON.
+    try {
+      db.exec(`ALTER TABLE game_analysis_queue ADD COLUMN state TEXT`)
+    } catch {
+      // Column already exists — expected after first migration.
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -120,6 +128,26 @@ export class GameAnalysisQueueModel implements BaseModel {
       SET priority = 3
       WHERE game_id != ? AND priority < 3 AND status = 'pending'
     `).run(gameId)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Analysis state (replaces game_analyses table)
+  // ---------------------------------------------------------------------------
+
+  static saveState(db: Database.Database, data: GameAnalysisData): void {
+    db.prepare(`
+      UPDATE game_analysis_queue
+      SET state = ?
+      WHERE game_id = ?
+    `).run(JSON.stringify(data), data.gameId)
+  }
+
+  static findState(db: Database.Database, gameId: string): GameAnalysisData | null {
+    const row = db.prepare(
+      'SELECT state FROM game_analysis_queue WHERE game_id = ?',
+    ).get(gameId) as { state: string | null } | undefined
+    if (!row?.state) return null
+    return JSON.parse(row.state) as GameAnalysisData
   }
 
   // ---------------------------------------------------------------------------

@@ -230,7 +230,7 @@ export interface AnalysisNode {
 
 /**
  * The full analysis state for a single game. Stored as a JSON blob in the
- * `game_analyses` table under the `state` column.
+ * `game_analysis_queue` table under the `state` column.
  */
 export interface GameAnalysisData {
   gameId: string

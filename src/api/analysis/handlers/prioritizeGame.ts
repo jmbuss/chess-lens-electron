@@ -78,7 +78,7 @@ export class PrioritizeGameHandler extends IpcHandler {
     }
 
     // 5. Notify downstream services — orchestrator re-evaluates the queue.
-    this.bus.emit('game:queue:updated', { reason: 'priority_changed' })
+    this.bus.emit('game:queue:updated', { reason: 'priority_changed', gameId })
 
     return { success: true, data: { success: true } }
   }

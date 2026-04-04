@@ -152,8 +152,7 @@ export interface ChessGameData {
 }
 
 /**
- * Database representation with analysis status: `game_analysis_queue` when
- * present, else FSM from `game_analyses.state`.
+ * Database representation with analysis status derived from `game_analysis_queue`.
  */
 export interface ChessGameDataWithAnalysis extends ChessGameData {
   analysisStatus: 'UNANALYZED' | 'PENDING' | 'ANALYZING' | 'COMPLETE' | null

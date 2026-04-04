@@ -1,5 +1,4 @@
 import type Database from 'better-sqlite3'
-import type { AnalysisQueueStatus } from '../analysis-queue/types'
 import type { BaseModel } from '../models/BaseModel'
 import type { ChessGameData, ChessGameDataWithAnalysis, ChessGame } from './types'
 import { PlayerColor } from './types'
@@ -205,19 +204,14 @@ export class ChessGameModel implements BaseModel {
   static findAllWithAnalysisStatus(db: Database.Database): ChessGameDataWithAnalysis[] {
     const rows = db.prepare(`
       SELECT cg.*,
-             gaq.status AS analysis_queue_status,
-             json_extract(ga.state, '$.gameFsmState') AS analysis_fsm_state
+             gaq.status AS analysis_queue_status
       FROM chess_games cg
       LEFT JOIN game_analysis_queue gaq ON cg.id = gaq.game_id
-      LEFT JOIN game_analyses ga ON cg.id = ga.game_id
       ORDER BY cg.startTime DESC
     `).all() as any[]
     return rows.map(row => ({
       ...this.parseRow(row),
-      analysisStatus: ChessGameModel.analysisStatusFromQueueAndFsm(
-        row.analysis_queue_status,
-        row.analysis_fsm_state,
-      ),
+      analysisStatus: ChessGameModel.analysisStatusFromQueue(row.analysis_queue_status),
     }))
   }
 
@@ -241,29 +235,22 @@ export class ChessGameModel implements BaseModel {
   // Internal
   // ---------------------------------------------------------------------------
 
-  /**
-   * Games list badge: prefer `game_analysis_queue.status`; if no queue row,
-   * fall back to persisted FSM in `game_analyses` (e.g. legacy or manual DB).
-   */
-  private static analysisStatusFromQueueAndFsm(
+  private static analysisStatusFromQueue(
     queueStatus: string | null | undefined,
-    fsmState: string | null | undefined,
   ): ChessGameDataWithAnalysis['analysisStatus'] {
-    if (queueStatus) {
-      switch (queueStatus as AnalysisQueueStatus) {
-        case 'complete':
-          return 'COMPLETE'
-        case 'in_progress':
-          return 'ANALYZING'
-        case 'pending':
-          return 'PENDING'
-        case 'failed':
-          return 'UNANALYZED'
-        default:
-          return null
-      }
+    if (!queueStatus) return null
+    switch (queueStatus) {
+      case 'complete':
+        return 'COMPLETE'
+      case 'in_progress':
+        return 'ANALYZING'
+      case 'pending':
+        return 'PENDING'
+      case 'failed':
+        return 'UNANALYZED'
+      default:
+        return null
     }
-    return (fsmState as ChessGameDataWithAnalysis['analysisStatus']) ?? null
   }
 
   private static parseRow(row: any): ChessGameData {

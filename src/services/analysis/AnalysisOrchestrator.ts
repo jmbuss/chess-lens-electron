@@ -45,16 +45,21 @@ export class AnalysisOrchestrator {
       if (p.reason === 'priority_changed' && p.gameId) {
         console.log(`[AnalysisOrchestrator] Game marked high priority: ${p.gameId}`)
       }
-      void this.evaluateQueue()
+      void this.evaluateQueue(p.gameId)
     })
+    this.bus.on('game:analysis:complete', (p) => void this.onGameComplete(p.gameId))
     this.bus.on('position:queue:updated', (p) => this.forwardPositionUpdate(p))
   }
 
   /**
    * Look at the head of the pending queue and decide whether to start a new
    * game, preempt the current one, or do nothing.
+   *
+   * @param prioritizedGameId — when set, the user explicitly prioritized this
+   *   game. If a different game is active, preempt it regardless of numeric
+   *   priority so the user's intent is honored immediately.
    */
-  private async evaluateQueue(): Promise<void> {
+  private async evaluateQueue(prioritizedGameId?: string): Promise<void> {
     const head = GameAnalysisQueueModel.fetchHead(this.db)
     if (!head) return
 
@@ -66,14 +71,21 @@ export class AnalysisOrchestrator {
     // Already processing this game — nothing to do.
     if (head.game_id === this.activeGameId) return
 
-    // Preemption: new head has higher priority (lower number = higher urgency)
-    // than the current game.
-    if (head.priority < this.activePriority) {
+    // Force preemption when the user explicitly prioritized a different game,
+    // even if numeric priorities are equal (both at 1).
+    const forcePreempt =
+      prioritizedGameId != null &&
+      prioritizedGameId !== this.activeGameId &&
+      head.game_id === prioritizedGameId
+
+    if (forcePreempt || head.priority < this.activePriority) {
+      const preemptedId = this.activeGameId!
       console.log(
-        `[AnalysisOrchestrator] Preempting ${this.activeGameId} for higher-priority game ${head.game_id} (priority ${head.priority} < ${this.activePriority})`,
+        `[AnalysisOrchestrator] Preempting ${preemptedId} for higher-priority game ${head.game_id} (priority ${head.priority}, active ${this.activePriority}, forced=${forcePreempt})`,
       )
       await this.activeCoordinator.stop()
-      GameAnalysisQueueModel.markPending(this.db, this.activeGameId!)
+      GameAnalysisQueueModel.markPending(this.db, preemptedId)
+      GameAnalysisQueueModel.updatePriority(this.db, preemptedId, 3)
       this.activeCoordinator = null
       this.activeGameId = null
       await this.startGame(head)
@@ -123,6 +135,22 @@ export class AnalysisOrchestrator {
       this.activeGameId = null
       void this.evaluateQueue()
     })
+  }
+
+  /**
+   * Called when a game's analysis finishes. Tears down the active coordinator
+   * and picks up the next pending game from the queue.
+   */
+  private async onGameComplete(gameId: string): Promise<void> {
+    if (this.activeGameId !== gameId) return
+
+    console.log(`[AnalysisOrchestrator] Game ${gameId} analysis complete, moving to next`)
+    if (this.activeCoordinator) {
+      await this.activeCoordinator.stop()
+    }
+    this.activeCoordinator = null
+    this.activeGameId = null
+    void this.evaluateQueue()
   }
 
   /**

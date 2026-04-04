@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { IpcMainEvent } from 'electron'
 import { IpcHandler } from 'src/ipc/IPCHandler'
 import { IpcRequest, IpcResponse } from 'src/ipc/types'
-import { GameAnalysisModel } from 'src/database/analysis/GameAnalysisModel'
+import { GameAnalysisQueueModel } from 'src/database/analysis-queue/GameAnalysisQueueModel'
 import type { GameAnalysisData } from 'src/database/analysis/types'
 
 declare module 'src/ipc/handlers' {
@@ -32,7 +32,7 @@ export class GetGameAnalysisHandler extends IpcHandler {
       }
     }
 
-    const analysis = GameAnalysisModel.findByGameId(this.db, request.params.gameId)
+    const analysis = GameAnalysisQueueModel.findState(this.db, request.params.gameId)
 
     return {
       success: true,
