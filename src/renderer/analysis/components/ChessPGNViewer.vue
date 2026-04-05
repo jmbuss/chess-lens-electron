@@ -41,6 +41,8 @@ const playerLine = computed(() => {
 
 const metaLine = computed(() => {
   const parts: string[] = []
+  const id = chessGame.value?.id
+  if (id) parts.push(`Game ID: ${id}`)
   if (headers.value.event) parts.push(headers.value.event)
   if (headers.value.date) parts.push(headers.value.date)
   if (headers.value.result) parts.push(headers.value.result)

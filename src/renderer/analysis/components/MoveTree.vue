@@ -204,7 +204,7 @@ function buildInlineTokens(startNode: GameNode | GameChildNode): InlineToken[] {
         <UIButton
           variant="ghost"
           class="px-0.5 h-auto py-0 rounded font-medium"
-          :class="{ 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-50': currentNode === token.node }"
+          :class="{ 'bg-neutral-200 text-neutral-900 dark:bg-neutral-700 dark:text-neutral-50': currentNode === token.node }"
           :style="currentNode !== token.node ? { color: nagColor(getNag(token.node)) } : {}"
           @click="emit('selectNode', token.node)"
         >{{ token.node.data.san }}{{ nagSymbol(getNag(token.node)) }}</UIButton>
@@ -223,7 +223,7 @@ function buildInlineTokens(startNode: GameNode | GameChildNode): InlineToken[] {
           <UIButton
             variant="ghost"
             class="px-0.5 h-auto py-0 rounded"
-            :class="{ 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-50': currentNode === variation }"
+            :class="{ 'bg-neutral-200 text-neutral-900 dark:bg-neutral-700 dark:text-neutral-50': currentNode === variation }"
             :style="currentNode !== variation ? { color: nagColor(getNag(variation)) } : {}"
             @click="emit('selectNode', variation)"
           >{{ variation.data.san }}{{ nagSymbol(getNag(variation)) }}</UIButton>
@@ -263,7 +263,7 @@ function buildInlineTokens(startNode: GameNode | GameChildNode): InlineToken[] {
             <UIButton
               variant="ghost"
               class="flex-1 min-w-0 justify-start px-1 py-0.5 h-auto rounded text-[13px] font-medium truncate"
-              :class="{ 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-50': currentNode === row.white }"
+              :class="{ 'bg-neutral-200 text-neutral-900 dark:bg-neutral-700 dark:text-neutral-50': currentNode === row.white }"
               :style="currentNode !== row.white ? { color: nagColor(getNag(row.white)) } : {}"
               @click="emit('selectNode', row.white)"
             >{{ row.white.data.san }}{{ nagSymbol(getNag(row.white)) }}</UIButton>
@@ -279,7 +279,7 @@ function buildInlineTokens(startNode: GameNode | GameChildNode): InlineToken[] {
             <UIButton
               variant="ghost"
               class="flex-1 min-w-0 justify-start px-1 py-0.5 h-auto rounded text-[13px] font-medium truncate"
-              :class="{ 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-50': currentNode === row.black }"
+              :class="{ 'bg-neutral-200 text-neutral-900 dark:bg-neutral-700 dark:text-neutral-50': currentNode === row.black }"
               :style="currentNode !== row.black ? { color: nagColor(getNag(row.black)) } : {}"
               @click="emit('selectNode', row.black)"
             >{{ row.black.data.san }}{{ nagSymbol(getNag(row.black)) }}</UIButton>
@@ -303,7 +303,7 @@ function buildInlineTokens(startNode: GameNode | GameChildNode): InlineToken[] {
           <UIButton
             variant="ghost"
             class="px-0.5 h-auto py-0 rounded font-medium"
-            :class="{ 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-50': currentNode === variation }"
+            :class="{ 'bg-neutral-200 text-neutral-900 dark:bg-neutral-700 dark:text-neutral-50': currentNode === variation }"
             :style="currentNode !== variation ? { color: nagColor(getNag(variation)) } : {}"
             @click="emit('selectNode', variation)"
           >{{ variation.data.san }}{{ nagSymbol(getNag(variation)) }}</UIButton>
@@ -330,7 +330,7 @@ function buildInlineTokens(startNode: GameNode | GameChildNode): InlineToken[] {
           <UIButton
             variant="ghost"
             class="px-0.5 h-auto py-0 rounded font-medium"
-            :class="{ 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-50': currentNode === variation }"
+            :class="{ 'bg-neutral-200 text-neutral-900 dark:bg-neutral-700 dark:text-neutral-50': currentNode === variation }"
             :style="currentNode !== variation ? { color: nagColor(getNag(variation)) } : {}"
             @click="emit('selectNode', variation)"
           >{{ variation.data.san }}{{ nagSymbol(getNag(variation)) }}</UIButton>
