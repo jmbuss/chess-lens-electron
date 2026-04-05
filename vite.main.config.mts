@@ -17,7 +17,7 @@ export default defineConfig((env) => {
         formats: ['cjs'], // CommonJS for Electron main process
       },
       rollupOptions: {
-        external: ['electron', 'better-sqlite3'],
+        external: ['electron', 'better-sqlite3', '@photostructure/sqlite-vec'],
       },
       outDir: '.vite/build',
     },

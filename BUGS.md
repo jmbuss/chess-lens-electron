@@ -1,0 +1,2 @@
+1. clicking through positions really fast makes maia bomb and makes the analysis hang because I'm guessing it is constantly stopping the machine even though it doens't have to.
+2. there are some cases still where only part of the position machine completes. I think I need to add some guard that whenever you view a game, check if there are any nodes missing the main 3 engine results. If that's true, queue that position again.

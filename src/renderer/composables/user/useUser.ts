@@ -35,6 +35,7 @@ export const useUser = () => {
     isLoading: isUserLoading,
     isFetching: isUserFetching,
     isRefetching: isUserRefetching,
+    isFetched: isUserFetched,
   } = useQuery(
     {
       queryKey: createUserQueryKey(),
@@ -82,6 +83,7 @@ export const useUser = () => {
     isUserLoading,
     isUserFetching,
     isUserRefetching,
+    isUserFetched,
 
     createUser: createUserMutation,
     isCreatingUser,
@@ -103,5 +105,5 @@ export const prefetchSingleAppUser = async (): Promise<UserData | null> => {
     queryFn: getSingleAppUser,
   })
 
-  return queryClient.getQueryData<UserData>(createUserQueryKey()) ?? null
+  return queryClient.getQueryData<UserData | null>(createUserQueryKey()) ?? null
 }

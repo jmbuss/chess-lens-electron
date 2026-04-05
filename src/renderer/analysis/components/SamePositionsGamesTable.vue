@@ -37,6 +37,7 @@ import {
   mapRow,
   type ChessGameWithAnalysis,
 } from 'src/renderer/composables/chessGames/useChessGames'
+import { analysisRoute } from 'src/renderer/utils/analysisRoute'
 import { useInjectedGameNavigator } from '../composables/provideChessGame'
 
 const route = useRoute()
@@ -288,7 +289,7 @@ const columns: ColumnDef<SamePositionsRow>[] = [
     enableSorting: false,
     cell: ({ row }: { row: Row<SamePositionsRow> }) => {
       const g = row.original
-      return h(RouterLink, { to: `/analysis/${g.id}` }, () =>
+      return h(RouterLink, { to: analysisRoute(g.id, currentFen.value) }, () =>
         h(
           Button,
           { variant: 'ghost', size: 'icon', class: 'size-7', title: 'Open analysis' },

@@ -9,7 +9,7 @@ import { PublisherGithub } from '@electron-forge/publisher-github'
 import path from 'path'
 import fs from 'fs'
 
-const nativeModules = ['better-sqlite3', 'bindings', 'file-uri-to-path']
+const nativeModules = ['better-sqlite3', 'bindings', 'file-uri-to-path', '@photostructure/sqlite-vec']
 
 const config: ForgeConfig = {
   packagerConfig: {

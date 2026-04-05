@@ -41,7 +41,6 @@ export const gettingStartedRoutes: RouteRecordRaw[] = [
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const gettingStartedGuard = async (to: any, from: any, next: any) => {
-  console.log('gettingStartedGuard', to, from)
   // Allow all navigation within getting-started flow and dev-only routes
   if (to.path.startsWith('/getting-started') || to.path.startsWith('/design-system')) {
     next()

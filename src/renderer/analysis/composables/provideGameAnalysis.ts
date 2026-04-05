@@ -12,6 +12,7 @@ interface GameAnalysisContext {
   blackStats: ComputedRef<PlayerStats | null>
   radarData: ComputedRef<PositionalRadarData | null>
   reanalyzeGame: () => Promise<void>
+  reindexGame: () => Promise<void>
 }
 
 export const provideGameAnalysis = (
@@ -23,10 +24,11 @@ export const provideGameAnalysis = (
   blackStats: ComputedRef<PlayerStats | null>,
   radarData: ComputedRef<PositionalRadarData | null>,
   reanalyzeGame: () => Promise<void>,
+  reindexGame: () => Promise<void>,
 ) => {
   provide(gameAnalysisSymbol, {
     analysisByFen, progress, isComplete, gameFsmState,
-    whiteStats, blackStats, radarData, reanalyzeGame,
+    whiteStats, blackStats, radarData, reanalyzeGame, reindexGame,
   } satisfies GameAnalysisContext)
 }
 

@@ -18,8 +18,8 @@ export const queryClient = new QueryClient({
       // if the data is still within its staleTime.
       refetchOnWindowFocus: true,
 
-      // Recommended for modern apps to handle errors globally
-      // via React Error Boundaries.
+      // Prefer gating fetches with `enabled` (and stable query keys) so queryFns
+      // are not invoked without required inputs — avoids spurious errors under throwOnError.
       throwOnError: true,
     },
   },

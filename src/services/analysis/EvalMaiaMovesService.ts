@@ -114,7 +114,6 @@ export class EvalMaiaMovesService {
   ): AugmentedMaiaResult {
     const predictions: AugmentedHumanMovePrediction[] = maiaResult.predictions.map(p => {
       const score = scoreMap.get(p.move) ?? null
-      console.log('score', score)
       // Scores are already normalized to white's perspective.
       // For mate scores, use ±100_000 cp as a sentinel so the chart's
       // ÷100 + clamp(±10) pipeline treats them identically to evalMate.

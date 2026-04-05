@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3'
+import * as sqliteVec from '@photostructure/sqlite-vec'
 import path from 'node:path'
 import { app } from 'electron'
 import type { BaseModel } from './models/BaseModel'
@@ -25,6 +26,9 @@ export class DatabaseService {
 
     // Enable foreign keys
     this.db.pragma('foreign_keys = ON')
+
+    // Load sqlite-vec extension for vector similarity search
+    sqliteVec.load(this.db)
 
     // Initialize all models
     this.initializeModels()

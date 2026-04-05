@@ -8,7 +8,7 @@ declare module 'src/ipc/handlers' {
   export interface IpcChannels {
     'user:getSingleAppUser': {
       request: undefined
-      response: UserData
+      response: UserData | null
     }
   }
 }
@@ -27,13 +27,13 @@ export class UserGetSingleAppUserHandler extends IpcHandler {
   async handle(
     event: IpcMainEvent,
     request: IpcRequest<undefined>
-  ): Promise<IpcResponse<UserData>> {
+  ): Promise<IpcResponse<UserData | null>> {
     const user = UserModel.findAll(this.db)
     const appUser = user.at(0)
 
     return {
-      success: appUser != null,
-      data: appUser,
+      success: true,
+      data: appUser ?? null,
     }
   }
 }

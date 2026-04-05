@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Badge as UIChip } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ChevronLeft, RefreshCw } from 'lucide-vue-next'
+import { ChevronLeft, RefreshCw, DatabaseZap } from 'lucide-vue-next'
 import { useInjectedChessGame } from '../composables/provideChessGame'
 import { useInjectedGameAnalysis } from '../composables/provideGameAnalysis'
 import { formatDateTime, ISO_DATE } from 'src/renderer/utils/formatDateTime';
@@ -14,9 +14,10 @@ import { useRouter } from 'vue-router'
 const router = useRouter()
 
 const { chessGame } = useInjectedChessGame()
-const { progress, isComplete, gameFsmState, reanalyzeGame } = useInjectedGameAnalysis()
+const { progress, isComplete, gameFsmState, reanalyzeGame, reindexGame } = useInjectedGameAnalysis()
 
 const isReanalyzing = ref(false)
+const isReindexing = ref(false)
 
 const handleReanalyze = async () => {
   if (isReanalyzing.value) return
@@ -25,6 +26,16 @@ const handleReanalyze = async () => {
     await reanalyzeGame()
   } finally {
     isReanalyzing.value = false
+  }
+}
+
+const handleReindex = async () => {
+  if (isReindexing.value) return
+  isReindexing.value = true
+  try {
+    await reindexGame()
+  } finally {
+    isReindexing.value = false
   }
 }
 
@@ -87,6 +98,17 @@ const showProgress = computed(() =>
     <!-- Analysis status -->
     <template v-if="showProgress">
       <div class="ml-auto flex flex-row gap-2 items-center shrink-0">
+        <Button
+          v-if="isComplete"
+          variant="ghost"
+          size="sm"
+          class="gap-1.5 text-muted-foreground hover:text-foreground"
+          :disabled="isReindexing"
+          @click="handleReindex"
+        >
+          <DatabaseZap class="size-3.5" :class="{ 'animate-pulse': isReindexing }" />
+          Re-index
+        </Button>
         <Button
           v-if="isComplete"
           variant="ghost"

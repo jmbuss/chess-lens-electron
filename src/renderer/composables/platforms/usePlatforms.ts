@@ -6,17 +6,11 @@ import { PlatformAccountData, PlatformType } from 'src/database/platform-account
 import { computed, MaybeRef, toValue } from 'vue'
 import { ChessGame } from 'src/database/chess/types'
 
-const createPlatformQueryKey = (userId?: number) => {
-  // if (!userId) {
-  //   throw new Error('userId is required')
-  // }
-  return ['platforms', userId] as const
-}
+const PLATFORMS_DISABLED_KEY = ['platforms', 'disabled'] as const
 
-const getPlatforms = async (userId?: number) => {
-  if (!userId) {
-    throw new Error('userId is required')
-  }
+const createPlatformQueryKey = (userId: number) => ['platforms', userId] as const
+
+const getPlatforms = async (userId: number) => {
   const platforms = await ipcService.send('platform:getByUserId', { userId })
   return platforms
 }
@@ -39,10 +33,18 @@ const updatePlatform = async (options: {
 }
 
 export const usePlatforms = () => {
-  const { user } = useUser()
-  const userId = computed(() => user.value?.id)
-  const userPlatformQueryKey = computed(() => createPlatformQueryKey(userId.value))
-  const enabled = computed(() => !!userId.value)
+  const { user, isUserFetched } = useUser()
+
+  const userId = computed((): number | undefined => {
+    const u = user.value
+    return u != null && typeof u.id === 'number' ? u.id : undefined
+  })
+
+  const userPlatformQueryKey = computed(() =>
+    userId.value !== undefined ? createPlatformQueryKey(userId.value) : PLATFORMS_DISABLED_KEY,
+  )
+
+  const enabled = computed(() => isUserFetched.value && userId.value !== undefined)
 
   const {
     data: platformsData,
@@ -53,7 +55,7 @@ export const usePlatforms = () => {
   } = useQuery(
     {
       queryKey: userPlatformQueryKey,
-      queryFn: () => getPlatforms(userId.value),
+      queryFn: () => getPlatforms(userId.value!),
       enabled,
     },
     queryClient

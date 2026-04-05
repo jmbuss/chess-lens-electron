@@ -60,6 +60,7 @@
   },
   "dependencies": {
     "@chess-openings/eco.json": "^1.1.0",
+    "@photostructure/sqlite-vec": "^1.1.1",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/vue-query": "^5.92.8",
     "@tanstack/vue-table": "^8.21.3",

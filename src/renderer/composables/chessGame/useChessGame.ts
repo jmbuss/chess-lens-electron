@@ -38,7 +38,8 @@ export const useChessGame = ({ gameId }: { gameId: MaybeRef<string> }) => {
   } = useQuery(
     {
       queryKey: chessGameQueryKey,
-      queryFn: ({ queryKey: [_, gameId] }) => getChessGame(gameId),
+      queryFn: ({ queryKey: [_, id] }) => getChessGame(id),
+      enabled: computed(() => Boolean(toValue(gameId))),
     },
     queryClient
   )

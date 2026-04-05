@@ -40,6 +40,7 @@ export const createGameNavigator = ({
     goToStart: gameTreeGoToStart,
     goToEnd: gameTreeGoToEnd,
     goToNode: gameTreeGoToNode,
+    goToFen: gameTreeGoToFen,
     makeMove: gameTreeMakeMove,
     isLoading: isGameTreeLoading,
     isError: isGameTreeError,
@@ -136,6 +137,8 @@ export const createGameNavigator = ({
     gameTreeGoToNode(node)
   }
 
+  const goToFen = (targetFen: string): boolean => gameTreeGoToFen(targetFen)
+
   // Flip the board orientation
   const flipBoard = (): void => {
     orientationOverride.value = orientation.value === 'white' ? 'black' : 'white'
@@ -177,6 +180,7 @@ export const createGameNavigator = ({
     goToStart,
     goToEnd,
     goToNode,
+    goToFen,
 
     // Board controls
     flipBoard,

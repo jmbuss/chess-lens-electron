@@ -28,15 +28,24 @@ const {
   analysisByFen,
   navigateToPosition,
   reanalyzeGame,
+  reindexGame,
   whiteStats,
   blackStats,
   radarData,
 } = useGameAnalysis(gameId)
 
-provideGameAnalysis(analysisByFen, progress, isComplete, gameFsmState, whiteStats, blackStats, radarData, reanalyzeGame)
+provideGameAnalysis(analysisByFen, progress, isComplete, gameFsmState, whiteStats, blackStats, radarData, reanalyzeGame, reindexGame)
+
+const fenFromRoute = computed(() => {
+  const raw = route.query.fen
+  if (typeof raw === 'string') return raw
+  if (Array.isArray(raw) && typeof raw[0] === 'string') return raw[0]
+  return undefined
+})
 
 const { gameNavigator, gameTree } = provideChessGame({
   gameId,
+  initialFen: fenFromRoute,
   onVariationPlayed: (parentFen, newNode) => {
     if (analysisByFen.value.has(newNode.data.fen)) return
     const d = newNode.data
@@ -82,14 +91,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
-})
-
-watch(progress, (val) => {
-  console.log(`[AnalysisPage] Analysis progress: ${Math.round(val * 100)}%`)
-})
-
-watch(isComplete, (val) => {
-  if (val) console.log('[AnalysisPage] Analysis complete! gameFsmState:', gameFsmState.value)
 })
 
 watch(() => gameNavigator.currentFen.value, (fen) => {

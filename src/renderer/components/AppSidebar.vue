@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Home, Palette, RefreshCw, Settings, User, HelpCircle, ChevronRight } from 'lucide-vue-next'
+import { Home, Palette, RefreshCw, Settings, User, HelpCircle, ChevronRight, Crosshair } from 'lucide-vue-next'
 import logo from 'src/assets/logo.png'
 import { useRoute, useRouter } from 'vue-router'
 import { useUser } from 'src/renderer/composables/user/useUser'
@@ -34,6 +34,7 @@ const { startSync, isLoading: isSyncing } = useSyncGames()
 
 const navItems = [
   { title: 'Games', path: '/', icon: Home },
+  { title: 'Critical Positions', path: '/positions', icon: Crosshair },
   { title: 'Design System', path: '/design-system', icon: Palette },
 ]
 

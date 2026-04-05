@@ -1,5 +1,5 @@
 import { useChessGame } from 'src/renderer/composables/chessGame/useChessGame'
-import { inject, MaybeRef, provide, toValue, watchEffect } from 'vue'
+import { inject, MaybeRef, provide } from 'vue'
 import { useChessGrounds } from './useChessGrounds'
 import { useGameTree } from './useGameTree'
 import { createGameNavigator, GameNavigator } from './useChessGameNavigator'
@@ -14,18 +14,16 @@ const chessGameSymbol = Symbol('chessGame')
 
 export const provideChessGame = ({
   gameId,
+  initialFen,
   onVariationPlayed,
 }: {
   gameId: MaybeRef<string>
+  initialFen?: MaybeRef<string | null | undefined>
   onVariationPlayed?: (parentFen: string, newNode: GameChildNode) => void
 }) => {
   const chessGame = useChessGame({ gameId })
   const chessgrounds = useChessGrounds()
-  const gameTree = useGameTree({ gameId })
-
-  watchEffect(() => {
-    console.log('chessGame', toValue(chessGame.chessGame))
-  })
+  const gameTree = useGameTree({ gameId, initialFen })
 
   // Create the game navigator which is the main public API
   const gameNavigator = createGameNavigator({ chessGame, chessgrounds, gameTree, onVariationPlayed })

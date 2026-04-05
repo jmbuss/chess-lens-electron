@@ -72,6 +72,11 @@ export const useGameAnalysis = (gameId: MaybeRef<string>) => {
     queryClient.invalidateQueries({ queryKey: queryKey.value })
   }
 
+  const reindexGame = async (): Promise<void> => {
+    await ipcService.send('positions:reindexGame', { gameId: toValue(gameId) })
+    queryClient.invalidateQueries({ queryKey: ['position-index'] })
+  }
+
   // ==================== game:analysis:updated listener ====================
 
   const onGameAnalysisUpdated = (response: IpcResponse<GameAnalysisUpdatedPayload>) => {
@@ -126,6 +131,7 @@ export const useGameAnalysis = (gameId: MaybeRef<string>) => {
     isLoading,
     navigateToPosition,
     reanalyzeGame,
+    reindexGame,
     whiteStats,
     blackStats,
     radarData,

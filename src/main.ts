@@ -10,6 +10,7 @@ import { GameAnalysisScheduler } from './services/analysis/GameAnalysisScheduler
 import { PositionQueueManager } from './services/analysis/PositionQueueManager'
 import { AnalysisOrchestrator } from './services/analysis/AnalysisOrchestrator'
 import { SyncCoordinator } from './services/sync/SyncCoordinator'
+import { PositionIndexer } from './services/analysis/vectors/PositionIndexer'
 import './events/app'
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -56,8 +57,9 @@ app.on('ready', () => {
 
   const orchestrator = new AnalysisOrchestrator(db, eventBus, positionQueueManager, mainWindow.webContents)
   new SyncCoordinator(db, eventBus, mainWindow.webContents)
+  const positionIndexer = new PositionIndexer(db, eventBus)
 
-  registerApi({ ipcHandlerRegistry, db, bus: eventBus, orchestrator, positionQueueManager })
+  registerApi({ ipcHandlerRegistry, db, bus: eventBus, orchestrator, positionQueueManager, positionIndexer })
 
   // Emitted after createWindow so the renderer is alive for progress events
   eventBus.emit('app:started', undefined)

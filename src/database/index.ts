@@ -7,6 +7,8 @@ import { GameFavoritesModel } from './favorites'
 import { GameAnalysisQueueModel } from './analysis-queue/GameAnalysisQueueModel'
 import { PositionAnalysisModel } from './analysis-queue/PositionAnalysisModel'
 import { GamePositionsModel } from './game-positions'
+import { PositionIndexModel } from './vectors/PositionIndexModel'
+import { VectorModel } from './vectors/VectorModel'
 
 export const database = new DatabaseService([
   new UserModel(),
@@ -17,4 +19,6 @@ export const database = new DatabaseService([
   new GameAnalysisQueueModel(),
   new PositionAnalysisModel(),
   new GamePositionsModel(),
+  new PositionIndexModel(),
+  new VectorModel(),
 ])
