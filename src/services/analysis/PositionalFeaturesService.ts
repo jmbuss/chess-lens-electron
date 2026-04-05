@@ -1,15 +1,19 @@
 import { StockfishClassicEvalService } from './StockfishClassicEvalService'
-import type { PositionalFeatures } from 'src/database/analysis/types'
+import type { PositionalFeatures, EvalRawFeatures } from 'src/database/analysis/types'
+
+export interface ComputeBothResult {
+  features: PositionalFeatures
+  rawFeatures: EvalRawFeatures
+}
 
 /**
  * Derives per-position structural features using Stockfish Classic's static
- * `eval` command. Replaces the previous hand-coded heuristics with the full
- * Stockfish evaluation breakdown (pawns, mobility, king safety, etc.).
+ * `eval` and `evalraw` commands.
  *
  * Lifecycle mirrors the other analysis services:
  *   1. Construct with the binary path.
  *   2. Call `initialize()` once before use.
- *   3. Call `compute(fen)` for each position (sequential use; async).
+ *   3. Call `computeBoth(fen)` for each position (sequential use; async).
  *   4. Call `quit()` when the coordinator is stopped.
  */
 export class PositionalFeaturesService {
@@ -25,6 +29,16 @@ export class PositionalFeaturesService {
 
   async compute(fen: string): Promise<PositionalFeatures> {
     return this.engine.evalPosition(fen)
+  }
+
+  /**
+   * Run eval then evalraw sequentially on the single stockfish-classic process.
+   * Both commands are serialized on the engine's internal command queue.
+   */
+  async computeBoth(fen: string): Promise<ComputeBothResult> {
+    const features = await this.engine.evalPosition(fen)
+    const rawFeatures = await this.engine.evalRawPosition(fen)
+    return { features, rawFeatures }
   }
 
   async quit(): Promise<void> {

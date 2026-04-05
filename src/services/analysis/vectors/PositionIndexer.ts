@@ -10,15 +10,10 @@ import { PositionAnalysisModel } from 'src/database/analysis-queue'
 import { GameAnalysisQueueModel } from 'src/database/analysis-queue'
 import { ChessGameModel } from 'src/database/chess/model'
 import { parseGameTree, collectAllFens } from 'src/utils/chess/GameTree'
-import { buildPositionalVector, buildStructuralVector } from './VectorBuilder'
+import { buildPositionalVector } from './VectorBuilder'
 import { buildConfigHash } from '../PositionQueueManager'
 import { ANALYSIS_PRESETS } from 'src/database/analysis/types'
 import './events'
-
-// const CRITICALITY_THRESHOLD = 0.6
-// const DIFFICULTY_THRESHOLD = 0.4
-// const MULTIPV_GOOD_OPTIONS_THRESHOLD = 3
-// const MULTIPV_EVAL_TOLERANCE_CP = 50
 
 function getActiveConfigHash(): string {
   return buildConfigHash({ mode: 'pipeline', preset: 'fast', ...ANALYSIS_PRESETS.fast })
@@ -57,7 +52,6 @@ export class PositionIndexer {
       const indexRows: PositionIndexInsertRow[] = []
       const fenDataMap = new Map<number, { fen: string; posOutput: PositionOutput | null }>()
 
-      // Walk the tree to build index candidates
       const walkChildren = (node: typeof root, ply: number): void => {
         for (const child of node.children) {
           const childPly = ply + 1
@@ -113,9 +107,7 @@ export class PositionIndexer {
         return
       }
 
-      // Single transaction: delete old index, insert new rows, insert vectors
       this.db.transaction(() => {
-        // Delete old vectors first (need to get old position_index ids)
         const oldRows = PositionIndexModel.findByGameId(this.db, gameId)
         if (oldRows.length > 0) {
           VectorModel.deleteByPositionIndexIds(this.db, oldRows.map(r => r.id))
@@ -125,33 +117,20 @@ export class PositionIndexer {
         const insertedIds = PositionIndexModel.bulkInsert(this.db, indexRows)
 
         const positionalVectors: VectorInsertRow[] = []
-        const structuralVectors: VectorInsertRow[] = []
 
         for (let i = 0; i < insertedIds.length; i++) {
           const positionIndexId = insertedIds[i]
           const entry = fenDataMap.get(i)
-          if (!entry) continue
+          if (!entry?.posOutput) continue
 
-          // Structural vector (always available)
-          structuralVectors.push({
-            positionIndexId,
-            vector: buildStructuralVector(entry.fen),
-          })
-
-          // Positional vector (only if analysis data exists)
-          if (entry.posOutput) {
-            const posVec = buildPositionalVector(entry.posOutput)
-            if (posVec) {
-              positionalVectors.push({ positionIndexId, vector: posVec })
-            }
+          const posVec = buildPositionalVector(entry.posOutput)
+          if (posVec) {
+            positionalVectors.push({ positionIndexId, vector: posVec })
           }
         }
 
         if (positionalVectors.length > 0) {
           VectorModel.insertPositionalBatch(this.db, positionalVectors)
-        }
-        if (structuralVectors.length > 0) {
-          VectorModel.insertStructuralBatch(this.db, structuralVectors)
         }
       })()
 
@@ -161,10 +140,6 @@ export class PositionIndexer {
     }
   }
 
-  /**
-   * Determine which index reasons apply to a position.
-   * Returns an array of reasons (may be empty if position doesn't qualify).
-   */
   private classifyPosition(
     _posOutput: PositionOutput | null,
     nodeResult: NodeResult | undefined,
@@ -173,52 +148,10 @@ export class PositionIndexer {
 
     if (!nodeResult) return reasons
 
-    // V0: Blunders
     if (nodeResult.nag === NAG.Blunder) {
       reasons.push('blunder')
     }
 
-    // V1: Critical positions
-    // if (nodeResult.criticalityScore >= CRITICALITY_THRESHOLD) {
-    //   reasons.push('critical')
-    // }
-
-    // V1: Difficult for human
-    // if (this.isDifficultForHuman(nodeResult.ceilingMistakeProb)) {
-    //   reasons.push('difficult')
-    // }
-
-    // V1: Many good options, suboptimal choice
-    // if (this.hasSuboptimalPlan(_posOutput, nodeResult)) {
-    //   reasons.push('suboptimal_plan')
-    // }
-
     return reasons
   }
-
-  // private isDifficultForHuman(prob: MistakeProbability | null): boolean {
-  //   if (!prob) return false
-  //   return (prob.blunderProb + prob.mistakeProb) >= DIFFICULTY_THRESHOLD
-  // }
-
-  // private hasSuboptimalPlan(
-  //   posOutput: PositionOutput | null,
-  //   nodeResult: NodeResult | undefined,
-  // ): boolean {
-  //   if (!posOutput?.engineResult?.lines || !nodeResult) return false
-  //   if (nodeResult.isBestMove) return false
-
-  //   const lines = posOutput.engineResult.lines
-  //   if (lines.length < MULTIPV_GOOD_OPTIONS_THRESHOLD) return false
-
-  //   const bestEval = lines[0]?.score
-  //   if (!bestEval || bestEval.type !== 'cp') return false
-
-  //   const goodOptions = lines.filter(line => {
-  //     if (line.score.type !== 'cp') return false
-  //     return Math.abs(line.score.value - bestEval.value) <= MULTIPV_EVAL_TOLERANCE_CP
-  //   })
-
-  //   return goodOptions.length >= MULTIPV_GOOD_OPTIONS_THRESHOLD
-  // }
 }

@@ -4,7 +4,7 @@ import { PositionIndexModel } from 'src/database/vectors/PositionIndexModel'
 import { VectorModel } from 'src/database/vectors/VectorModel'
 import { PositionAnalysisModel } from 'src/database/analysis-queue'
 import type { PositionIndexRow } from 'src/database/vectors/types'
-import { buildPositionalVector, buildStructuralVector } from 'src/services/analysis/vectors/VectorBuilder'
+import { buildPositionalVector } from 'src/services/analysis/vectors/VectorBuilder'
 import type { PositionOutput } from 'src/services/analysis/machines/positionMachine'
 import { IpcHandler } from 'src/ipc/IPCHandler'
 import { IpcRequest, IpcResponse } from 'src/ipc/types'
@@ -12,8 +12,6 @@ import { IpcRequest, IpcResponse } from 'src/ipc/types'
 export interface SimilarPositionMatch {
   positionIndexId: number
   distance: number
-  positionalDistance?: number
-  structuralDistance?: number
   fen: string
   gameId: string
   ply: number
@@ -29,8 +27,6 @@ declare module 'src/ipc/handlers' {
         fen: string
         k?: number
         configHash?: string
-        mode?: 'positional' | 'structural' | 'combined'
-        positionalWeight?: number
       }
       response: { matches: SimilarPositionMatch[] }
     }
@@ -50,8 +46,6 @@ export class PositionsFindSimilarHandler extends IpcHandler {
       fen: string
       k?: number
       configHash?: string
-      mode?: 'positional' | 'structural' | 'combined'
-      positionalWeight?: number
     }>,
   ): Promise<IpcResponse<{ matches: SimilarPositionMatch[] }>> {
     const params = request.params
@@ -59,54 +53,23 @@ export class PositionsFindSimilarHandler extends IpcHandler {
       return { success: false, error: 'fen is required' }
     }
 
-    const { fen, k = 10, configHash, mode = 'combined', positionalWeight = 0.5 } = params
+    const { fen, k = 10, configHash } = params
+
+    const paRow = configHash
+      ? PositionAnalysisModel.findByFen(this.db, fen, configHash)
+      : PositionAnalysisModel.findByFenAnyConfig(this.db, fen)[0] ?? null
 
     let positionalVec: Float32Array | null = null
-    if (mode === 'positional' || mode === 'combined') {
-      const paRow = configHash
-        ? PositionAnalysisModel.findByFen(this.db, fen, configHash)
-        : PositionAnalysisModel.findByFenAnyConfig(this.db, fen)[0] ?? null
-
-      if (paRow?.result_json) {
-        const posOutput = JSON.parse(paRow.result_json) as PositionOutput
-        positionalVec = buildPositionalVector(posOutput)
-      }
+    if (paRow?.result_json) {
+      const posOutput = JSON.parse(paRow.result_json) as PositionOutput
+      positionalVec = buildPositionalVector(posOutput)
     }
 
-    const structuralVec = buildStructuralVector(fen)
-    let knnResults: Array<{
-      position_index_id: number
-      distance: number
-      positionalDistance?: number
-      structuralDistance?: number
-    }>
-
-    switch (mode) {
-      case 'positional':
-        if (!positionalVec) {
-          return { success: true, data: { matches: [] } }
-        }
-        knnResults = VectorModel.knnPositional(this.db, positionalVec, k)
-        break
-
-      case 'structural':
-        knnResults = VectorModel.knnStructural(this.db, structuralVec, k).map(r => ({
-          ...r,
-          structuralDistance: r.distance,
-        }))
-        break
-
-      case 'combined':
-      default:
-        knnResults = VectorModel.knnCombined(
-          this.db,
-          positionalVec,
-          structuralVec,
-          k,
-          positionalWeight,
-        )
-        break
+    if (!positionalVec) {
+      return { success: true, data: { matches: [] } }
     }
+
+    const knnResults = VectorModel.knnPositional(this.db, positionalVec, k)
 
     if (knnResults.length === 0) {
       return { success: true, data: { matches: [] } }
@@ -123,7 +86,7 @@ export class PositionsFindSimilarHandler extends IpcHandler {
     for (const r of knnResults) {
       const row = indexMap.get(Number(r.position_index_id))
       if (!row) continue
-      const m: SimilarPositionMatch = {
+      matches.push({
         positionIndexId: Number(r.position_index_id),
         distance: Number(r.distance),
         fen: String(row.fen),
@@ -132,10 +95,7 @@ export class PositionsFindSimilarHandler extends IpcHandler {
         san: row.san == null ? null : String(row.san),
         nag: row.nag == null ? null : String(row.nag),
         indexReason: String(row.index_reason),
-      }
-      if (r.positionalDistance != null) m.positionalDistance = Number(r.positionalDistance)
-      if (r.structuralDistance != null) m.structuralDistance = Number(r.structuralDistance)
-      matches.push(m)
+      })
     }
 
     return { success: true, data: { matches } }

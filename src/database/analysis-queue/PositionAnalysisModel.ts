@@ -3,6 +3,66 @@ import type { BaseModel } from '../models/BaseModel'
 import type { PositionAnalysisRow, PositionAnalysisUpsertRow } from './types'
 import { isoNow } from '../isoTimestamps'
 
+// ==================== Positional Column Definitions ====================
+
+const EVALRAW_PER_COLOR_FEATURES = [
+  'pawn_count', 'knight_count', 'bishop_count', 'rook_count', 'queen_count',
+  'passed_pawns', 'isolated_pawns', 'doubled_pawns', 'backward_pawns',
+  'connected_pawns', 'supported_pawns', 'phalanx_pawns', 'blocked_pawns',
+  'knight_mobility', 'bishop_mobility', 'rook_mobility', 'queen_mobility',
+  'knight_outpost', 'bishop_outpost', 'reachable_outpost', 'bad_outpost',
+  'bishop_long_diagonal', 'bishop_pair', 'bishop_pawns_same_color',
+  'bishop_xray_pawns', 'minor_behind_pawn', 'rook_on_open_file',
+  'rook_on_semiopen_file', 'rook_on_queen_file', 'rook_on_king_ring',
+  'bishop_on_king_ring', 'trapped_rook', 'weak_queen', 'queen_infiltration',
+  'king_attackers_count', 'king_attackers_weight', 'king_attacks_count',
+  'king_danger', 'king_flank_attack', 'king_flank_defense', 'unsafe_checks',
+  'king_ring_weak', 'blockers_for_king', 'king_pawnless_flank',
+  'weak_pieces', 'hanging_pieces', 'restricted_pieces',
+  'threat_by_safe_pawn', 'threat_by_pawn_push', 'threat_by_king',
+  'knight_on_queen', 'slider_on_queen', 'weak_queen_protection',
+  'passed_pawn_best_rank', 'free_passed_pawns',
+  'space_count',
+  'can_castle_kingside', 'can_castle_queenside', 'non_pawn_material',
+] as const
+
+const EVALRAW_GLOBAL_FEATURES = [
+  'phase', 'complexity', 'scale_factor', 'outflanking',
+  'pawns_on_both_flanks', 'almost_unwinnable', 'infiltration',
+  'opposite_bishops', 'side_to_move', 'rule50_count', 'final_eval',
+] as const
+
+const EVAL_TERM_COL_NAMES = [
+  'material', 'imbalance', 'pawns', 'knights', 'bishops', 'rooks', 'queens',
+  'mobility', 'kingsafety', 'threats', 'passed', 'space', 'winnable',
+] as const
+
+/** All evalraw column names (per-color _w/_b + globals). */
+const EVALRAW_COLUMNS = [
+  ...EVALRAW_PER_COLOR_FEATURES.flatMap(f => [`${f}_w`, `${f}_b`]),
+  ...EVALRAW_GLOBAL_FEATURES,
+]
+
+/** All eval column names (term × side × phase + eval_final). */
+const EVAL_COLUMNS = [
+  ...EVAL_TERM_COL_NAMES.flatMap(t => [
+    `eval_${t}_white_mg`, `eval_${t}_white_eg`,
+    `eval_${t}_black_mg`, `eval_${t}_black_eg`,
+    `eval_${t}_total_mg`, `eval_${t}_total_eg`,
+  ]),
+  'eval_final',
+]
+
+const ALL_POSITIONAL_COLUMNS = new Set([...EVALRAW_COLUMNS, ...EVAL_COLUMNS])
+
+function buildPositionalColumnsSQL(): string {
+  const evalrawDefs = EVALRAW_COLUMNS.map(col => `${col} INTEGER`)
+  const evalDefs = EVAL_COLUMNS.map(col => `${col} REAL`)
+  return [...evalrawDefs, ...evalDefs].join(',\n        ')
+}
+
+export { EVALRAW_PER_COLOR_FEATURES, EVALRAW_GLOBAL_FEATURES, EVAL_TERM_COL_NAMES }
+
 export class PositionAnalysisModel implements BaseModel {
   static readonly MAX_RETRIES = 3
 
@@ -20,6 +80,8 @@ export class PositionAnalysisModel implements BaseModel {
         result_json TEXT,
         depth       INTEGER,
         analyzed_at TEXT,
+
+        ${buildPositionalColumnsSQL()},
 
         UNIQUE (fen, config_hash)
       )
@@ -81,15 +143,23 @@ export class PositionAnalysisModel implements BaseModel {
     id: number,
     resultJson: string,
     depth: number,
+    positionalColumns?: Record<string, number | null>,
   ): void {
-    db.prepare(`
-      UPDATE position_analysis
-      SET status = 'complete',
-          result_json = ?,
-          depth = ?,
-          analyzed_at = ?
-      WHERE id = ?
-    `).run(resultJson, depth, isoNow(), id)
+    const sets = ["status = 'complete'", 'result_json = ?', 'depth = ?', 'analyzed_at = ?']
+    const params: (string | number | null)[] = [resultJson, depth, isoNow()]
+
+    if (positionalColumns) {
+      for (const [col, val] of Object.entries(positionalColumns)) {
+        if (!ALL_POSITIONAL_COLUMNS.has(col)) continue
+        sets.push(`${col} = ?`)
+        params.push(val)
+      }
+    }
+
+    params.push(id)
+    db.prepare(
+      `UPDATE position_analysis SET ${sets.join(', ')} WHERE id = ?`,
+    ).run(...params)
   }
 
   static markPending(db: Database.Database, id: number): void {

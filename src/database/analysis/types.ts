@@ -58,6 +58,16 @@ export interface PositionalFeatures {
   finalEvaluation: number
 }
 
+// ==================== Eval Raw Features ====================
+
+/**
+ * Raw inputs to Stockfish Classic's evaluation function, captured via the
+ * `evalraw` command. 129 flat integer values: 59 per-color features (×2 sides)
+ * plus 11 global features. Keys match the engine output exactly
+ * (e.g. `pawn_count_w`, `king_danger_b`, `phase`).
+ */
+export type EvalRawFeatures = Record<string, number>
+
 // ==================== Positional Radar (runtime-only) ====================
 
 /** Per-axis radar value, split by side. */
@@ -217,6 +227,7 @@ export interface AnalysisNode {
 
   // ── Positional features (per-position, from PositionalFeaturesService) ──
   positionalFeatures?: PositionalFeatures
+  evalRawFeatures?: EvalRawFeatures
 
   // ── Maia best-move evals (for human eval curves) ──
   /** Stockfish eval (cp, White-perspective) of the floor Maia model's top predicted move */
@@ -272,6 +283,7 @@ export interface PositionAnalysis {
 
   // ── Positional features ──
   positionalFeatures?: PositionalFeatures
+  evalRawFeatures?: EvalRawFeatures
 
   // ── Maia best-move evals (for human eval curves) ──
   maiaFloorBestEval?: number | null

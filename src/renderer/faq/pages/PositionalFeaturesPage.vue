@@ -133,14 +133,55 @@
       </div>
     </section>
 
+    <!-- ===================== RAW FEATURES & SIMILARITY ===================== -->
+    <section class="space-y-6">
+      <h2 class="text-lg font-semibold text-primary">Raw Features &amp; Similarity Search</h2>
+
+      <div class="space-y-4 text-sm text-secondary leading-relaxed">
+        <h3 class="text-base font-medium text-primary">Two Data Sources</h3>
+        <p>
+          Chess Lens captures two complementary views from the same Stockfish Classic evaluation:
+        </p>
+        <ul class="list-disc list-inside space-y-1.5 pl-1">
+          <li>
+            <strong class="text-primary">Eval outputs</strong> &mdash; the weighted, phase-blended
+            centipawn scores per category (Material, Mobility, King Safety, etc.) that power the
+            radar chart above. These tell you <em>how much</em> each factor contributed to the
+            position assessment.
+          </li>
+          <li>
+            <strong class="text-primary">Eval raw inputs</strong> &mdash; the raw counts, flags,
+            and intermediate values <em>before</em> they get weighted and blended. Things like
+            &ldquo;White has 2 passed pawns,&rdquo; &ldquo;Black's knight mobility is 6 squares,&rdquo;
+            or &ldquo;game phase is 95/128.&rdquo; These are stored as individual queryable columns
+            (129 features total) and power similarity search.
+          </li>
+        </ul>
+
+        <h3 class="text-base font-medium text-primary pt-2">Similarity Search</h3>
+        <p>
+          When you look for similar positions, Chess Lens selects a curated subset of 75 raw
+          features (material counts, pawn structure, mobility, piece placement, king safety, threats,
+          and space for both sides, plus global features like game phase). These are normalized to
+          comparable scales and packed into a vector for nearest-neighbor search. Positions with
+          similar raw characteristics &mdash; regardless of exact piece placement &mdash; will rank
+          as similar.
+        </p>
+        <p>
+          All 129 raw features are stored as individual database columns, so you can also query
+          positions directly by specific criteria (e.g. &ldquo;find all positions where White has 2
+          passed pawns and a trapped rook&rdquo;) as future query features are added.
+        </p>
+      </div>
+    </section>
+
     <!-- ===================== WHAT'S COMING NEXT ===================== -->
     <section class="space-y-4">
       <h2 class="text-lg font-semibold text-primary">What's Coming Next</h2>
 
       <div class="space-y-3 text-sm text-secondary leading-relaxed">
         <p>
-          The current positional features system gives a per-position snapshot and a game-level
-          summary. Planned enhancements will add move-level explanations:
+          Planned enhancements will add move-level explanations and richer position queries:
         </p>
         <ul class="list-disc list-inside space-y-1.5 pl-1">
           <li>
@@ -151,10 +192,14 @@
             it was one.
           </li>
           <li>
-            <strong class="text-primary">Feature attribution service enhancements</strong>:
-            Improved aggregation logic for the radar chart, including better handling of positions
-            that are close to equal (where the current sign-based split between White and Black
-            axes can be noisy).
+            <strong class="text-primary">Position queries</strong>: Search across all analyzed games
+            for positions matching specific raw feature criteria &mdash; for example, finding every
+            position where you had a space advantage but weak king safety.
+          </li>
+          <li>
+            <strong class="text-primary">Detailed per-position breakdown</strong>: A visualization
+            showing raw feature counts alongside their weighted contributions, giving a complete
+            picture of what the evaluation function sees.
           </li>
         </ul>
       </div>

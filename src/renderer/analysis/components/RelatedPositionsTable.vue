@@ -2,23 +2,17 @@
 import type { ColumnDef } from '@tanstack/vue-table'
 import UITable from 'src/renderer/components/Table/UITable.vue'
 import { Badge } from '@/components/ui/badge'
-import { h, ref } from 'vue'
+import { h } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useInjectedGameNavigator } from '../composables/provideChessGame'
-import { useSimilarPositions, type SimilarityMode } from '../composables/useSimilarPositions'
+import { useSimilarPositions } from '../composables/useSimilarPositions'
 import { analysisRoute } from 'src/renderer/utils/analysisRoute'
 import type { SimilarPositionMatch } from 'src/api/positions/handlers/findSimilar'
 import { NAG } from 'src/services/engine/types'
 
 const { currentFen } = useInjectedGameNavigator()
 
-const mode = ref<SimilarityMode>('combined')
-const positionalWeight = ref(0.5)
-
-const { matches, isLoading } = useSimilarPositions(currentFen, {
-  mode,
-  positionalWeight,
-})
+const { matches, isLoading } = useSimilarPositions(currentFen)
 
 const nagLabel = (nag: string | null): string => {
   if (nag == null) return ''
@@ -95,56 +89,18 @@ const columns: ColumnDef<SimilarPositionMatch>[] = [
   },
   {
     accessorKey: 'distance',
-    header: 'Score',
+    header: 'Similarity',
     cell: ({ row }) => {
       const d = row.original.distance
-      if (mode.value === 'combined') {
-        return h('span', { class: 'tabular-nums' }, d.toFixed(4))
-      }
       const similarity = Math.max(0, 1 - d)
       return h('span', { class: 'tabular-nums' }, `${(similarity * 100).toFixed(0)}%`)
     },
   },
 ]
-
-const modeOptions: { value: SimilarityMode; label: string }[] = [
-  { value: 'positional', label: 'Positional' },
-  { value: 'structural', label: 'Structural' },
-  { value: 'combined', label: 'Combined' },
-]
 </script>
 
 <template>
   <div class="flex flex-col gap-2">
-    <div class="flex items-center gap-3 px-1">
-      <div class="inline-flex rounded-md border border-input overflow-hidden text-xs">
-        <button
-          v-for="opt in modeOptions"
-          :key="opt.value"
-          class="px-2.5 py-1 transition-colors"
-          :class="mode === opt.value
-            ? 'bg-accent text-accent-foreground'
-            : 'bg-background text-muted-foreground hover:bg-raised'"
-          @click="mode = opt.value"
-        >
-          {{ opt.label }}
-        </button>
-      </div>
-      <div v-if="mode === 'combined'" class="flex items-center gap-2 text-xs text-muted-foreground">
-        <span>Struct</span>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.1"
-          :value="positionalWeight"
-          class="w-20 h-1 accent-accent"
-          @input="positionalWeight = parseFloat(($event.target as HTMLInputElement).value)"
-        />
-        <span>Pos</span>
-      </div>
-    </div>
-
     <UITable :data="matches" :columns="columns" :loading="isLoading">
       <template #empty>
         <div class="flex flex-col items-center gap-2 text-muted py-2">

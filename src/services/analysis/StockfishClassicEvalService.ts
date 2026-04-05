@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
-import type { PositionalFeatures, EvalTerm, EvalTermScore } from 'src/database/analysis/types'
+import type { PositionalFeatures, EvalTerm, EvalTermScore, EvalRawFeatures } from 'src/database/analysis/types'
 
 const INIT_TIMEOUT_MS = 10_000
 const EVAL_TIMEOUT_MS = 5_000
@@ -94,6 +94,23 @@ export function parseEvalOutput(lines: string[]): PositionalFeatures {
   return features
 }
 
+// ==================== Eval Raw Parser ====================
+
+/**
+ * Parse key=value lines from a single `evalraw` command invocation.
+ * Exported for unit testing.
+ */
+export function parseEvalRawOutput(lines: string[]): EvalRawFeatures {
+  const features: EvalRawFeatures = {}
+  for (const line of lines) {
+    const match = line.match(/^([a-z_]+)=(-?\d+)$/)
+    if (match) {
+      features[match[1]] = parseInt(match[2], 10)
+    }
+  }
+  return features
+}
+
 // ==================== Service ====================
 
 type LineHandler = (line: string) => void
@@ -114,12 +131,10 @@ export class StockfishClassicEvalService {
   private handlers: LineHandler[] = []
 
   /**
-   * Serializes evalPosition calls. Each call awaits the previous one so that
-   * only one `eval` command is in-flight at a time. Prevents a cancelled
-   * position machine's in-flight call from leaving a stale handler that
-   * consumes the response meant for the next call.
+   * Serializes all commands (eval + evalraw) on this process. Each call awaits
+   * the previous one so only one command is in-flight at a time.
    */
-  private evalQueue: Promise<PositionalFeatures> = Promise.resolve(defaultFeatures())
+  private commandQueue: Promise<unknown> = Promise.resolve()
 
   constructor(private readonly binaryPath: string) {}
 
@@ -154,16 +169,21 @@ export class StockfishClassicEvalService {
 
   /**
    * Run a static evaluation for the given FEN and return parsed positional features.
-   * Calls are automatically serialized: if a previous eval is still in-flight
-   * (e.g. from a cancelled position machine), the new call waits for it to
-   * finish before sending its own command. This prevents stale handlers from
-   * consuming responses meant for a later call.
+   * Calls are automatically serialized on the shared command queue.
    */
   evalPosition(fen: string): Promise<PositionalFeatures> {
-    const next = this.evalQueue
-      .catch(() => defaultFeatures())
-      .then(() => this.doEval(fen))
-    this.evalQueue = next.catch(() => defaultFeatures())
+    const next = this.commandQueue.catch(() => {}).then(() => this.doEval(fen))
+    this.commandQueue = next.catch(() => {})
+    return next
+  }
+
+  /**
+   * Run the evalraw command for the given FEN and return raw evaluation inputs.
+   * Serialized on the same command queue as evalPosition.
+   */
+  evalRawPosition(fen: string): Promise<EvalRawFeatures> {
+    const next = this.commandQueue.catch(() => {}).then(() => this.doEvalRaw(fen))
+    this.commandQueue = next.catch(() => {})
     return next
   }
 
@@ -203,6 +223,48 @@ export class StockfishClassicEvalService {
           clearTimeout(timeout)
           this.removeHandler(handler)
           resolve(captured.length > 0 ? parseEvalOutput(captured) : defaultFeatures())
+          return
+        }
+
+        captured.push(line)
+      }
+
+      this.handlers.push(handler)
+    })
+  }
+
+  private async doEvalRaw(fen: string): Promise<EvalRawFeatures> {
+    if (!this.process) {
+      console.warn('[StockfishClassic] process not running — returning empty evalraw')
+      return {}
+    }
+
+    this.send(`position fen ${fen}`)
+    this.send('evalraw')
+    this.send('isready')
+
+    const captured: string[] = []
+
+    return new Promise<EvalRawFeatures>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.removeHandler(handler)
+        console.warn('[StockfishClassic] evalraw timed out, returning empty', fen)
+        resolve({})
+      }, EVAL_TIMEOUT_MS)
+
+      const handler: LineHandler = (line) => {
+        if (line.startsWith('final_eval=')) {
+          captured.push(line)
+          clearTimeout(timeout)
+          this.removeHandler(handler)
+          resolve(parseEvalRawOutput(captured))
+          return
+        }
+
+        if (line === 'readyok') {
+          clearTimeout(timeout)
+          this.removeHandler(handler)
+          resolve(captured.length > 0 ? parseEvalRawOutput(captured) : {})
           return
         }
 

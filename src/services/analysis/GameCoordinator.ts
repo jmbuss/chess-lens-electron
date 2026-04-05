@@ -21,6 +21,7 @@ import { ChessGameModel } from 'src/database/chess/model'
 
 import { PhaseClassificationService } from './PhaseClassificationService'
 import { PositionalFeaturesService } from './PositionalFeaturesService'
+import type { PositionalFeatures, EvalTerm, EvalRawFeatures } from 'src/database/analysis/types'
 import { EvalMaiaMovesService } from './EvalMaiaMovesService'
 import { buildConfigHash } from './PositionQueueManager'
 import { computeAndPersistAggregates } from './GameAggregateService'
@@ -188,11 +189,11 @@ export class GameCoordinator {
           evalMaiaMovesService.evaluate(actorInput)
         ),
         computePositionalData: fromPromise(async ({ input: actorInput }) => {
-          const [phase, features] = await Promise.all([
+          const [phase, { features, rawFeatures }] = await Promise.all([
             phaseService.classifyPosition(actorInput.fen, actorInput.ply),
-            featuresService.compute(actorInput.fen),
+            featuresService.computeBoth(actorInput.fen),
           ])
-          return { phase, features }
+          return { phase, features, rawFeatures }
         }),
         stopEngines: fromPromise(async () => {
           await Promise.all([
@@ -334,11 +335,16 @@ export class GameCoordinator {
   // ==================== Private Helpers ====================
 
   private writePositionToCache(id: number, fen: string, output: PositionOutput): void {
+    const positionalColumns = buildPositionalColumns(
+      output.positionalFeatures ?? null,
+      output.evalRawFeatures ?? null,
+    )
     PositionAnalysisModel.markComplete(
       this.db,
       id,
       JSON.stringify(output),
       output.engineResult?.depth ?? 0,
+      positionalColumns,
     )
   }
 
@@ -381,4 +387,41 @@ export class GameCoordinator {
       data: { gameId: this.gameId },
     })
   }
+}
+
+// ==================== Column Flattening ====================
+
+const EVAL_TERM_TO_COL: Record<string, string> = {
+  material: 'material', imbalance: 'imbalance', pawns: 'pawns',
+  knights: 'knights', bishops: 'bishops', rooks: 'rooks',
+  queens: 'queens', mobility: 'mobility', kingSafety: 'kingsafety',
+  threats: 'threats', passed: 'passed', space: 'space', winnable: 'winnable',
+}
+
+function buildPositionalColumns(
+  pf: PositionalFeatures | null,
+  raw: EvalRawFeatures | null,
+): Record<string, number | null> {
+  const cols: Record<string, number | null> = {}
+
+  if (pf) {
+    for (const [key, colName] of Object.entries(EVAL_TERM_TO_COL)) {
+      const term = pf[key as keyof PositionalFeatures] as EvalTerm | undefined
+      cols[`eval_${colName}_white_mg`] = term?.white?.mg ?? null
+      cols[`eval_${colName}_white_eg`] = term?.white?.eg ?? null
+      cols[`eval_${colName}_black_mg`] = term?.black?.mg ?? null
+      cols[`eval_${colName}_black_eg`] = term?.black?.eg ?? null
+      cols[`eval_${colName}_total_mg`] = term?.total?.mg ?? null
+      cols[`eval_${colName}_total_eg`] = term?.total?.eg ?? null
+    }
+    cols.eval_final = pf.finalEvaluation
+  }
+
+  if (raw) {
+    for (const [key, val] of Object.entries(raw)) {
+      cols[key] = val
+    }
+  }
+
+  return cols
 }

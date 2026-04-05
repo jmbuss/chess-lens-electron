@@ -5,6 +5,7 @@ import type {
   MaiaAnalysisResult,
   AugmentedMaiaResult,
   PositionalFeatures,
+  EvalRawFeatures,
 } from 'src/database/analysis/types'
 import type { PhaseResult } from 'src/services/analysis/PhaseClassificationService'
 
@@ -40,6 +41,7 @@ export interface PositionOutput {
   augmentedMaiaCeiling: AugmentedMaiaResult | null
   phaseResult: PhaseResult | null
   positionalFeatures: PositionalFeatures | null
+  evalRawFeatures: EvalRawFeatures | null
   maiaFloorBestEval: number | null
   maiaCeilingBestEval: number | null
 }
@@ -57,6 +59,7 @@ interface PositionContext extends PositionInput {
   // GATHERING.FEATURES
   phaseResult: PhaseResult | null
   positionalFeatures: PositionalFeatures | null
+  evalRawFeatures: EvalRawFeatures | null
 
   // EVAL_MAIA_MOVES
   augmentedMaiaFloor: AugmentedMaiaResult | null
@@ -96,6 +99,7 @@ export interface ComputePositionalDataInput {
 export interface ComputePositionalDataResult {
   phase: PhaseResult
   features: PositionalFeatures
+  rawFeatures: EvalRawFeatures
 }
 
 // ==================== Cache Probe ====================
@@ -146,6 +150,7 @@ export const positionMachine = setup({
     maiaCeilingResult: null,
     phaseResult: null,
     positionalFeatures: null,
+    evalRawFeatures: null,
     augmentedMaiaFloor: null,
     augmentedMaiaCeiling: null,
   }),
@@ -157,6 +162,7 @@ export const positionMachine = setup({
     augmentedMaiaCeiling: context.augmentedMaiaCeiling,
     phaseResult: context.phaseResult,
     positionalFeatures: context.positionalFeatures,
+    evalRawFeatures: context.evalRawFeatures,
     maiaFloorBestEval: context.augmentedMaiaFloor?.predictions[0]?.stockfishEval ?? null,
     maiaCeilingBestEval: context.augmentedMaiaCeiling?.predictions[0]?.stockfishEval ?? null,
   }),
@@ -185,6 +191,7 @@ export const positionMachine = setup({
                 maiaCeilingResult: cached.maiaCeilingResult,
                 phaseResult: cached.phaseResult,
                 positionalFeatures: cached.positionalFeatures,
+                evalRawFeatures: cached.evalRawFeatures ?? null,
                 augmentedMaiaFloor: cached.augmentedMaiaFloor,
                 augmentedMaiaCeiling: cached.augmentedMaiaCeiling,
               }
@@ -253,6 +260,7 @@ export const positionMachine = setup({
                   actions: assign(({ event }) => ({
                     phaseResult: event.output.phase,
                     positionalFeatures: event.output.features,
+                    evalRawFeatures: event.output.rawFeatures,
                   })),
                 },
                 onError: 'DONE',
