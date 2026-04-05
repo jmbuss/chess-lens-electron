@@ -3,7 +3,7 @@ import { IpcMainEvent } from 'electron'
 import { IpcHandler } from 'src/ipc/IPCHandler'
 import { IpcRequest, IpcResponse } from 'src/ipc/types'
 import { GameAnalysisQueueModel } from 'src/database/analysis-queue/GameAnalysisQueueModel'
-import { PositionAnalysisModel } from 'src/database/analysis-queue/PositionAnalysisModel'
+import { PositionAnalysisModel, EVALRAW_PER_COLOR_FEATURES, EVALRAW_GLOBAL_FEATURES } from 'src/database/analysis-queue/PositionAnalysisModel'
 import type {
   GameAnalysisResponse,
   PositionAnalysis,
@@ -11,6 +11,10 @@ import type {
   PlayerStats,
   NodeResult,
   PositionalRadarData,
+  EvalRawFeatures,
+  PositionalFeatures,
+  EvalTerm,
+  EvalTermScore,
 } from 'src/database/analysis/types'
 import { ANALYSIS_PRESETS } from 'src/database/analysis/types'
 import { buildConfigHash } from 'src/services/analysis/PositionQueueManager'
@@ -18,6 +22,57 @@ import { ChessGameModel } from 'src/database/chess/model'
 import { gameTreeToAnalysis } from 'src/services/analysis/GameAggregateService'
 import type { AnalysisNode } from 'src/database/analysis/types'
 import type { PositionOutput } from 'src/services/analysis/machines/positionMachine'
+// Maps PositionalFeatures object keys to their flat column name prefix.
+const EVAL_TERM_TO_COL: Record<string, string> = {
+  material: 'material', imbalance: 'imbalance', pawns: 'pawns',
+  knights: 'knights', bishops: 'bishops', rooks: 'rooks',
+  queens: 'queens', mobility: 'mobility', kingSafety: 'kingsafety',
+  threats: 'threats', passed: 'passed', space: 'space', winnable: 'winnable',
+}
+
+function num(row: Record<string, unknown>, col: string): number | null {
+  const v = row[col]
+  return typeof v === 'number' ? v : null
+}
+
+function evalTermFromRow(row: Record<string, unknown>, colName: string): EvalTerm {
+  const score = (side: string): EvalTermScore | null => {
+    const mg = num(row, `eval_${colName}_${side}_mg`)
+    const eg = num(row, `eval_${colName}_${side}_eg`)
+    return mg !== null || eg !== null ? { mg: mg ?? 0, eg: eg ?? 0 } : null
+  }
+  return {
+    white: score('white'),
+    black: score('black'),
+    total: score('total'),
+  }
+}
+
+function positionalFeaturesFromRow(row: Record<string, unknown>): PositionalFeatures | null {
+  const finalEval = num(row, 'eval_final')
+  if (finalEval === null) return null
+  const result: Partial<PositionalFeatures> = { finalEvaluation: finalEval }
+  for (const [featureKey, colName] of Object.entries(EVAL_TERM_TO_COL)) {
+    ;(result as Record<string, EvalTerm>)[featureKey] = evalTermFromRow(row, colName)
+  }
+  return result as PositionalFeatures
+}
+
+function evalRawFeaturesFromRow(row: Record<string, unknown>): EvalRawFeatures | null {
+  const result: EvalRawFeatures = {}
+  let hasAny = false
+  for (const key of EVALRAW_PER_COLOR_FEATURES) {
+    const w = row[`${key}_w`]
+    const b = row[`${key}_b`]
+    if (typeof w === 'number') { result[`${key}_w`] = w; hasAny = true }
+    if (typeof b === 'number') { result[`${key}_b`] = b; hasAny = true }
+  }
+  for (const key of EVALRAW_GLOBAL_FEATURES) {
+    const v = row[key]
+    if (typeof v === 'number') { result[key] = v; hasAny = true }
+  }
+  return hasAny ? result : null
+}
 
 declare module 'src/ipc/handlers' {
   export interface IpcChannels {
@@ -60,6 +115,7 @@ function hydrateNodeFromCache(
         ? cached.phaseResult.ecoMatch != null
         : undefined,
       positionalFeatures: cached.positionalFeatures ?? undefined,
+      evalRawFeatures: cached.evalRawFeatures ?? undefined,
       maiaFloorBestEval: cached.maiaFloorBestEval,
       maiaCeilingBestEval: cached.maiaCeilingBestEval,
     })
@@ -101,6 +157,7 @@ function treeToPositions(node: AnalysisNode, positions: Record<string, PositionA
     ecoCode: node.ecoCode,
     isBookMove: node.isBookMove,
     positionalFeatures: node.positionalFeatures,
+    evalRawFeatures: node.evalRawFeatures,
     maiaFloorBestEval: node.maiaFloorBestEval,
     maiaCeilingBestEval: node.maiaCeilingBestEval,
   }
@@ -156,12 +213,28 @@ export class GetGameAnalysisHandler extends IpcHandler {
       const positionRows = PositionAnalysisModel.findAllByFens(this.db, fens, configHash)
       const positionMap = new Map<string, PositionOutput>()
       for (const row of positionRows) {
-        if (row.status === 'complete' && row.result_json) {
-          try {
-            positionMap.set(row.fen, JSON.parse(row.result_json) as PositionOutput)
-          } catch {
-            // Skip corrupt rows
-          }
+        if (row.status !== 'complete') continue
+        try {
+          const parsed: PositionOutput = row.result_json
+            ? JSON.parse(row.result_json) as PositionOutput
+            : {
+                engineResult: null,
+                maiaFloorResult: null,
+                maiaCeilingResult: null,
+                augmentedMaiaFloor: null,
+                augmentedMaiaCeiling: null,
+                phaseResult: null,
+                positionalFeatures: null,
+                evalRawFeatures: null,
+                maiaFloorBestEval: null,
+                maiaCeilingBestEval: null,
+              }
+          const flatRow = row as unknown as Record<string, unknown>
+          parsed.positionalFeatures = positionalFeaturesFromRow(flatRow)
+          parsed.evalRawFeatures = evalRawFeaturesFromRow(flatRow)
+          positionMap.set(row.fen, parsed)
+        } catch {
+          // Skip corrupt rows
         }
       }
 

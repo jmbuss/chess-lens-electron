@@ -71,63 +71,10 @@ export class PositionIndexModel implements BaseModel {
 
   static findAll(
     db: Database.Database,
-    filters: {
-      indexReason?: string
-      nag?: string
-      color?: string
-      gameId?: string
-    } = {},
-    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
-    sort: { sortBy: string; sortDir: 'asc' | 'desc' } = { sortBy: 'created_at', sortDir: 'desc' },
-  ): { positions: PositionIndexRow[]; total: number } {
-    const conditions: string[] = []
-    const params: (string | number)[] = []
-
-    if (filters.indexReason) {
-      conditions.push('pi.index_reason = ?')
-      params.push(filters.indexReason)
-    }
-    if (filters.nag) {
-      conditions.push('pi.nag = ?')
-      params.push(filters.nag)
-    }
-    if (filters.color) {
-      conditions.push('pi.color = ?')
-      params.push(filters.color)
-    }
-    if (filters.gameId) {
-      conditions.push('pi.game_id = ?')
-      params.push(filters.gameId)
-    }
-
-    const whereClause = conditions.length > 0
-      ? `WHERE ${conditions.join(' AND ')}`
-      : ''
-
-    const allowedSortColumns: Record<string, string> = {
-      criticality_score: 'pi.criticality_score',
-      created_at: 'pi.created_at',
-      ply: 'pi.ply',
-      move_number: 'pi.move_number',
-      index_reason: 'pi.index_reason',
-    }
-    const sortColumn = allowedSortColumns[sort.sortBy] ?? 'pi.created_at'
-    const sortDir = sort.sortDir === 'asc' ? 'ASC' : 'DESC'
-
-    const countRow = db.prepare(
-      `SELECT COUNT(*) as total FROM position_index pi ${whereClause}`,
-    ).get(...params) as { total: number }
-
-    const offset = (pagination.page - 1) * pagination.pageSize
-    const positions = db.prepare(`
-      SELECT pi.*
-      FROM position_index pi
-      ${whereClause}
-      ORDER BY ${sortColumn} ${sortDir}
-      LIMIT ? OFFSET ?
-    `).all(...params, pagination.pageSize, offset) as PositionIndexRow[]
-
-    return { positions, total: countRow.total }
+  ): PositionIndexRow[] {
+    return db.prepare(
+      `SELECT * FROM position_index ORDER BY created_at DESC`,
+    ).all() as PositionIndexRow[]
   }
 
   static findByGameId(db: Database.Database, gameId: string): PositionIndexRow[] {

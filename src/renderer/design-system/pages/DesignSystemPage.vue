@@ -92,6 +92,8 @@ const evalChartOption = computed((): EChartsOption => {
       icon: 'rect',
     },
     tooltip: {
+      appendTo: 'body',
+      extraCssText: 'z-index: 999999;',
       trigger: 'axis',
       axisPointer: { type: 'line' },
       backgroundColor: isDark.value ? 'oklch(23% 0.024 210)' : 'oklch(100% 0 0)',

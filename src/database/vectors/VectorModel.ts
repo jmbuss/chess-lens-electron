@@ -96,4 +96,15 @@ export class VectorModel implements BaseModel {
       LIMIT ?
     `).all(float32ArrayToBlob(queryVector), k) as KnnResult[]
   }
+
+  static getAllPositionalVectors(db: Database.Database): { positionIndexId: number; vector: Float32Array }[] {
+    const rows = db.prepare(
+      `SELECT rowid AS position_index_id, vec_to_json(embedding) AS embedding_json FROM positional_vectors`,
+    ).all() as { position_index_id: number | bigint; embedding_json: string }[]
+
+    return rows.map(r => ({
+      positionIndexId: Number(r.position_index_id),
+      vector: Float32Array.from(JSON.parse(r.embedding_json) as number[]),
+    }))
+  }
 }

@@ -6,14 +6,15 @@ import { useInjectedGameNavigator } from '../composables/provideChessGame'
 import { useInjectedGameAnalysis } from '../composables/provideGameAnalysis'
 import ChessGameAnalysisTab from './ChessGameAnalysisTab.vue'
 import ChessPositionAnalysisTab from './ChessPositionAnalysisTab.vue'
+import ChessPositionalFeaturesTab from './ChessPositionalFeaturesTab.vue'
 
-type ViewerTab = 'game' | 'position'
+type ViewerTab = 'game' | 'position' | 'features'
 
 const activeTab = useLocalStorage<ViewerTab>('chess-lens.analysis.viewer-tab', 'game')
 
 watchEffect(() => {
   const v = activeTab.value
-  if (v !== 'game' && v !== 'position') {
+  if (v !== 'game' && v !== 'position' && v !== 'features') {
     activeTab.value = 'game'
   }
 })
@@ -31,6 +32,7 @@ const isAnalyzed = computed(() => currentNode.value?.fsmState === 'NAG_COMPLETE'
       <TabsList class="w-full">
         <TabsTrigger value="game" class="flex-1">Game Analysis</TabsTrigger>
         <TabsTrigger value="position" class="flex-1">Position Analysis</TabsTrigger>
+        <TabsTrigger value="features" class="flex-1">Positional Features</TabsTrigger>
       </TabsList>
     </div>
 
@@ -45,6 +47,10 @@ const isAnalyzed = computed(() => currentNode.value?.fsmState === 'NAG_COMPLETE'
 
       <TabsContent value="position">
         <ChessPositionAnalysisTab />
+      </TabsContent>
+
+      <TabsContent value="features" class="flex-1 min-h-0 overflow-hidden">
+        <ChessPositionalFeaturesTab />
       </TabsContent>
     </template>
   </Tabs>

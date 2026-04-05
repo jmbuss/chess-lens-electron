@@ -36,19 +36,8 @@ function positionIndexRowForIpc(row: PositionIndexRow): PositionIndexRow {
 declare module 'src/ipc/handlers' {
   export interface IpcChannels {
     'positions:getAll': {
-      request: {
-        page?: number
-        pageSize?: number
-        filters?: {
-          indexReason?: string
-          nag?: string
-          color?: string
-          gameId?: string
-        }
-        sortBy?: string
-        sortDir?: 'asc' | 'desc'
-      }
-      response: { positions: PositionIndexRow[]; total: number }
+      request: Record<string, never>
+      response: { positions: PositionIndexRow[] }
     }
   }
 }
@@ -62,27 +51,14 @@ export class PositionsGetAllHandler extends IpcHandler {
 
   async handle(
     _event: IpcMainEvent,
-    request: IpcRequest<{
-      page?: number
-      pageSize?: number
-      filters?: { indexReason?: string; nag?: string; color?: string; gameId?: string }
-      sortBy?: string
-      sortDir?: 'asc' | 'desc'
-    }>,
-  ): Promise<IpcResponse<{ positions: PositionIndexRow[]; total: number }>> {
-    const params = request.params ?? {}
-    const result = PositionIndexModel.findAll(
-      this.db,
-      params.filters ?? {},
-      { page: params.page ?? 1, pageSize: params.pageSize ?? 20 },
-      { sortBy: params.sortBy ?? 'created_at', sortDir: params.sortDir ?? 'desc' },
-    )
+    _request: IpcRequest<Record<string, never>>,
+  ): Promise<IpcResponse<{ positions: PositionIndexRow[] }>> {
+    const rows = PositionIndexModel.findAll(this.db)
 
     return {
       success: true,
       data: {
-        positions: result.positions.map(positionIndexRowForIpc),
-        total: Number(result.total),
+        positions: rows.map(positionIndexRowForIpc),
       },
     }
   }

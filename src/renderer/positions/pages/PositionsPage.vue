@@ -1,27 +1,32 @@
 <script setup lang="ts">
 import type { ColumnDef, Row } from '@tanstack/vue-table'
 import type { PositionIndexRow } from 'src/database/vectors/types'
+import type { PositionCluster } from 'src/services/analysis/ClusteringService'
 import UITable from 'src/renderer/components/Table/UITable.vue'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
+import Button from '@/components/ui/button/Button.vue'
 import { h, ref, computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import { usePositionIndex, type PositionIndexFilters } from '../composables/usePositionIndex'
+import { Loader2, RefreshCw } from 'lucide-vue-next'
+import { usePositionIndex } from '../composables/usePositionIndex'
+import { usePositionClusters } from '../composables/usePositionClusters'
 import { analysisRoute } from 'src/renderer/utils/analysisRoute'
 import { NAG } from 'src/services/engine/types'
 
-const filters = ref<PositionIndexFilters>({})
-const page = ref(1)
-const pageSize = ref(20)
-const sortBy = ref('created_at')
-const sortDir = ref<'asc' | 'desc'>('desc')
+// ── Positions list ──────────────────────────────────────────────
 
-const { positions, total, isPending, error } = usePositionIndex(
-  filters,
-  page,
-  pageSize,
-  sortBy,
-  sortDir,
-)
+const { positions, isPending, error } = usePositionIndex()
+
+const filterReason = ref('')
+const filterColor = ref('')
+
+const filteredPositions = computed(() => {
+  let rows = positions.value
+  if (filterReason.value) rows = rows.filter(r => r.index_reason === filterReason.value)
+  if (filterColor.value) rows = rows.filter(r => r.color === filterColor.value)
+  return rows
+})
 
 const nagLabel = (nag: string | null): string => {
   if (nag == null) return ''
@@ -46,8 +51,7 @@ const nagLabel = (nag: string | null): string => {
 const nagBadgeVariant = (nag: string | null): 'default' | 'secondary' | 'destructive' | 'outline' => {
   if (nag == null) return 'secondary'
   const n = parseInt(nag, 10)
-  if (n === NAG.Blunder) return 'destructive'
-  if (n === NAG.Mistake) return 'destructive'
+  if (n === NAG.Blunder || n === NAG.Mistake) return 'destructive'
   if (n === NAG.Inaccuracy) return 'outline'
   if (n === NAG.Best || n === NAG.Brilliant || n === NAG.Great) return 'default'
   return 'secondary'
@@ -75,7 +79,7 @@ const formatEval = (row: PositionIndexRow): string => {
   return '-'
 }
 
-const columns: ColumnDef<PositionIndexRow>[] = [
+const positionColumns: ColumnDef<PositionIndexRow>[] = [
   {
     id: 'move',
     header: 'Move',
@@ -158,68 +162,190 @@ const columns: ColumnDef<PositionIndexRow>[] = [
   },
 ]
 
-const data = computed(() => positions.value)
+// ── Clusters ────────────────────────────────────────────────────
+
+const activeTab = ref<'positions' | 'clusters'>('positions')
+const clustersTabActive = computed(() => activeTab.value === 'clusters')
+const { clusters, isPending: clustersPending, isFetching: clustersFetching, error: clustersError, refetch: refetchClusters } = usePositionClusters(clustersTabActive)
+
+const clusterColumns: ColumnDef<PositionCluster>[] = [
+  {
+    id: 'clusterId',
+    header: '#',
+    cell: ({ row }: { row: Row<PositionCluster> }) => {
+      return h('span', { class: 'tabular-nums text-sm text-secondary' }, String(row.index + 1))
+    },
+  },
+  {
+    id: 'representative',
+    header: 'Representative Position',
+    cell: ({ row }: { row: Row<PositionCluster> }) => {
+      const c = row.original
+      const move = c.representativeSan
+        ? c.representativeColor === 'w'
+          ? `${c.representativeMoveNumber ?? ''}. ${c.representativeSan}`
+          : `${c.representativeMoveNumber ?? ''}... ${c.representativeSan}`
+        : '—'
+      return h('span', { class: 'font-mono text-sm whitespace-nowrap' }, move)
+    },
+  },
+  {
+    id: 'size',
+    header: 'Positions',
+    accessorKey: 'size',
+    cell: ({ row }: { row: Row<PositionCluster> }) => {
+      return h('span', { class: 'tabular-nums text-sm' }, String(row.original.size))
+    },
+  },
+  {
+    id: 'gameCount',
+    header: 'Games',
+    accessorKey: 'gameCount',
+    cell: ({ row }: { row: Row<PositionCluster> }) => {
+      return h('span', { class: 'tabular-nums text-sm' }, String(row.original.gameCount))
+    },
+  },
+  {
+    id: 'dominantReason',
+    header: 'Common Reason',
+    accessorKey: 'dominantReason',
+    cell: ({ row }: { row: Row<PositionCluster> }) => {
+      return h(Badge, { variant: reasonBadgeVariant(row.original.dominantReason) }, () => reasonLabel(row.original.dominantReason))
+    },
+  },
+  {
+    id: 'dominantOpening',
+    header: 'Opening',
+    cell: ({ row }: { row: Row<PositionCluster> }) => {
+      return h('span', { class: 'text-sm' }, row.original.dominantOpening ?? '—')
+    },
+  },
+  {
+    id: 'avgCriticality',
+    header: 'Avg Criticality',
+    accessorKey: 'avgCriticality',
+    cell: ({ row }: { row: Row<PositionCluster> }) => {
+      const c = row.original.avgCriticality
+      if (c == null) return h('span', { class: 'text-secondary' }, '—')
+      return h('span', { class: 'tabular-nums text-sm' }, c.toFixed(2))
+    },
+  },
+  {
+    id: 'view',
+    header: 'View',
+    cell: ({ row }: { row: Row<PositionCluster> }) => {
+      const c = row.original
+      return h(
+        RouterLink,
+        {
+          to: analysisRoute(c.representativeGameId, c.representativeFen),
+          class: 'text-sm text-accent hover:underline',
+        },
+        () => 'View',
+      )
+    },
+  },
+]
 </script>
 
 <template>
-  <div class="h-full flex flex-col p-4 gap-4">
-    <div class="flex items-center justify-between">
+  <div class="h-full flex flex-col p-4 gap-3">
+    <div class="flex items-center justify-between shrink-0">
       <h1 class="text-xl font-semibold">Critical Positions</h1>
-      <div class="flex items-center gap-2">
-        <select
-          class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-          :value="filters.indexReason ?? ''"
-          @change="filters = { ...filters, indexReason: ($event.target as HTMLSelectElement).value || undefined }; page = 1"
-        >
-          <option value="">All Reasons</option>
-          <option value="blunder">Blunder</option>
-          <option value="critical">Critical</option>
-          <option value="difficult">Difficult</option>
-          <option value="suboptimal_plan">Suboptimal Plan</option>
-        </select>
-        <select
-          class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-          :value="filters.color ?? ''"
-          @change="filters = { ...filters, color: ($event.target as HTMLSelectElement).value || undefined }; page = 1"
-        >
-          <option value="">All Colors</option>
-          <option value="w">White</option>
-          <option value="b">Black</option>
-        </select>
+    </div>
+
+    <Tabs v-model="activeTab" class="flex flex-col flex-1 min-h-0 gap-3">
+      <div class="flex items-center justify-between shrink-0">
+        <TabsList>
+          <TabsTrigger value="positions">Positions</TabsTrigger>
+          <TabsTrigger value="clusters">Clusters</TabsTrigger>
+        </TabsList>
+
+        <!-- Filters (positions tab only) -->
+        <div v-if="activeTab === 'positions'" class="flex items-center gap-2">
+          <select
+            v-model="filterReason"
+            class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+          >
+            <option value="">All Reasons</option>
+            <option value="blunder">Blunder</option>
+            <option value="critical">Critical</option>
+            <option value="difficult">Difficult</option>
+            <option value="suboptimal_plan">Suboptimal Plan</option>
+          </select>
+          <select
+            v-model="filterColor"
+            class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+          >
+            <option value="">All Colors</option>
+            <option value="w">White</option>
+            <option value="b">Black</option>
+          </select>
+        </div>
+
+        <!-- Re-cluster button (clusters tab only) -->
+        <div v-if="activeTab === 'clusters'" class="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="clustersFetching"
+            @click="refetchClusters()"
+          >
+            <Loader2 v-if="clustersFetching" class="size-3.5 animate-spin" />
+            <RefreshCw v-else class="size-3.5" />
+            Re-cluster
+          </Button>
+        </div>
       </div>
-    </div>
-    <div class="flex-1 min-h-0">
-      <UITable
-        :data="data"
-        :columns="columns"
-        :initial-page-size="pageSize"
-        :loading="isPending"
-        :error="error"
-      >
-        <template #empty>
-          <div class="flex flex-col items-center gap-2 text-muted py-8">
-            <p class="text-sm font-medium">No indexed positions yet</p>
-            <p class="text-xs">Positions will appear here after game analysis completes.</p>
-          </div>
-        </template>
-      </UITable>
-    </div>
-    <div v-if="total > pageSize" class="flex items-center justify-center gap-2 text-sm">
-      <button
-        class="px-3 py-1 rounded border border-input disabled:opacity-50"
-        :disabled="page <= 1"
-        @click="page--"
-      >
-        Previous
-      </button>
-      <span class="tabular-nums">Page {{ page }} of {{ Math.ceil(total / pageSize) }}</span>
-      <button
-        class="px-3 py-1 rounded border border-input disabled:opacity-50"
-        :disabled="page >= Math.ceil(total / pageSize)"
-        @click="page++"
-      >
-        Next
-      </button>
-    </div>
+
+      <!-- Positions tab -->
+      <TabsContent value="positions" class="flex-1 min-h-0">
+        <UITable
+          :data="filteredPositions"
+          :columns="positionColumns"
+          :loading="isPending"
+          :error="error"
+        >
+          <template #empty>
+            <div class="flex flex-col items-center gap-2 text-muted py-8">
+              <p class="text-sm font-medium">No indexed positions yet</p>
+              <p class="text-xs">Positions will appear here after game analysis completes.</p>
+            </div>
+          </template>
+        </UITable>
+      </TabsContent>
+
+      <!-- Clusters tab -->
+      <TabsContent value="clusters" class="flex-1 min-h-0 flex flex-col gap-2">
+        <p class="text-sm text-muted-foreground shrink-0 max-w-3xl leading-relaxed">
+          Each row is a group of indexed positions that look alike in the
+          <span class="text-foreground">75-dimensional positional feature vector</span>
+          (piece activity, pawn structure, king safety, etc.). K-means splits all vectors into up to
+          20 groups; the table shows how many positions and games landed in each group, the most common
+          reason and opening in that group, and one
+          <span class="text-foreground">representative position</span>
+          (closest to the group’s average). Use
+          <span class="text-foreground">View</span>
+          to open it in analysis.
+        </p>
+        <div class="flex-1 min-h-0">
+          <UITable
+            :data="clusters"
+            :columns="clusterColumns"
+            :loading="clustersPending || clustersFetching"
+            :error="clustersError"
+          >
+            <template #empty>
+              <div class="flex flex-col items-center gap-2 text-muted py-8">
+                <p class="text-sm font-medium">No clusters</p>
+                <p class="text-xs">
+                  Clustering needs indexed positions with vectors. Analyze games, then open this tab again or use Re-cluster.
+                </p>
+              </div>
+            </template>
+          </UITable>
+        </div>
+      </TabsContent>
+    </Tabs>
   </div>
 </template>

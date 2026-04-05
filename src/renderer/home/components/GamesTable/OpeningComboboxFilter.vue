@@ -44,7 +44,7 @@ function toggleOpening(value: string) {
 </script>
 
 <template>
-  <Command v-model:search-term="search">
+  <Command v-model:search-term="search" :clear-search-on-select="true">
     <CommandInput placeholder="Search openings..." class="h-8" />
     <CommandList class="max-h-48">
       <CommandEmpty>No openings found.</CommandEmpty>

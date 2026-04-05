@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -12,13 +12,20 @@ import {
   LegendComponent,
 } from 'echarts/components'
 import type { EChartsOption } from 'echarts'
+import type { PositionAnalysis } from 'src/database/analysis/types'
+import { useDarkMode } from 'src/renderer/composables/darkMode/useDarkMode'
 import { useInjectedGameAnalysis } from '../composables/provideGameAnalysis'
 import { useInjectedGameNavigator } from '../composables/provideChessGame'
-import type { PositionAnalysis } from 'src/database/analysis/types'
+import {
+  handleShiftWheelYAxisDataZoom,
+  type EChartsComponentApi,
+} from '../composables/yAxisWheelDataZoom'
 import type { GameNode, GameChildNode } from '../composables/types'
-import { useDarkMode } from 'src/renderer/composables/darkMode/useDarkMode'
 
 use([CanvasRenderer, LineChart, BarChart, GridComponent, TooltipComponent, MarkLineComponent, DataZoomComponent, LegendComponent])
+
+const GAME_CHART_X_DZ_ID = 'gameChartInsideX'
+const GAME_CHART_Y_DZ_ID = 'gameChartInsideY'
 
 const { analysisByFen } = useInjectedGameAnalysis()
 const { currentFen, moveList, goToNode, root } = useInjectedGameNavigator()
@@ -124,6 +131,13 @@ const currentMoveIndex = computed(() =>
   moveEntries.value.findIndex(e => e.fen === currentFen.value),
 )
 
+const gameChartRef = ref<EChartsComponentApi | null>(null)
+
+function onGameChartWheelCapture(e: WheelEvent) {
+  if (!hasData.value || !e.shiftKey) return
+  handleShiftWheelYAxisDataZoom(gameChartRef.value, e, GAME_CHART_Y_DZ_ID)
+}
+
 const handleChartClick = (params: { dataIndex: number }) => {
   const entry = moveEntries.value[params.dataIndex]
   if (!entry) return
@@ -212,6 +226,8 @@ const option = computed((): EChartsOption => {
       icon: 'rect',
     },
     tooltip: {
+      appendTo: 'body',
+      extraCssText: 'z-index: 999999;',
       trigger: 'axis',
       axisPointer: { type: 'line' },
       backgroundColor: isDark.value ? '#2c3b45' : '#fff',
@@ -241,12 +257,24 @@ const option = computed((): EChartsOption => {
     dataZoom: [
       {
         type: 'inside',
+        id: GAME_CHART_X_DZ_ID,
         xAxisIndex: 0,
         start: 0,
         end: 100,
         zoomOnMouseWheel: true,
         moveOnMouseMove: true,
         preventDefaultMouseMove: true,
+      },
+      {
+        type: 'inside',
+        id: GAME_CHART_Y_DZ_ID,
+        yAxisIndex: 0,
+        start: 0,
+        end: 100,
+        zoomOnMouseWheel: false,
+        moveOnMouseMove: false,
+        preventDefaultMouseMove: true,
+        minSpan: 5,
       },
     ],
     xAxis: {
@@ -358,5 +386,13 @@ const option = computed((): EChartsOption => {
   <div class="w-full h-full flex items-center justify-center" v-if="!hasData">
     <p class="text-sm text-muted">No analysis data yet.</p>
   </div>
-  <VChart v-else :option="option" autoresize class="w-full h-full cursor-pointer" @click="handleChartClick" />
+  <div v-else class="w-full h-full relative" @wheel.capture="onGameChartWheelCapture">
+    <VChart
+      ref="gameChartRef"
+      :option="option"
+      autoresize
+      class="w-full h-full cursor-pointer"
+      @click="handleChartClick"
+    />
+  </div>
 </template>

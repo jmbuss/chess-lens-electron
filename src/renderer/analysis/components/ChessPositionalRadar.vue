@@ -53,7 +53,6 @@ const EQUALITY_THRESHOLD = 0.05
 const MATERIAL_SWING_SATURATION_CP = 200
 const materialConfidence = computed(() => {
   const swing = props.evalSwingCp
-  console.log('swing', swing)
   if (swing == null) return 1
   return Math.max(0, 1 - Math.abs(swing) / MATERIAL_SWING_SATURATION_CP)
 })
@@ -108,7 +107,6 @@ const MATERIAL_TERM_KEYS = new Set<string>(['material', 'imbalance'])
 const termBreakdownRows = computed<BreakdownRow[]>(() => {
   const f = props.features
   const conf = materialConfidence.value
-  console.log('conf', conf)
   return TERM_BREAKDOWN.map((term) => {
     const mg = f?.[term.key].total?.mg ?? 0
     const eg = f?.[term.key].total?.eg ?? mg
@@ -206,6 +204,8 @@ const radarOption = computed((): EChartsOption => {
     animation: false,
     backgroundColor: 'transparent',
     tooltip: {
+      appendTo: 'body',
+      extraCssText: 'z-index: 999999;',
       trigger: 'item',
       backgroundColor: isDark.value ? '#2c3b45' : '#fff',
       borderColor: isDark.value ? '#445969' : '#e0e0e0',

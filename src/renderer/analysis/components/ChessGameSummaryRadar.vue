@@ -37,6 +37,8 @@ const radarOption = computed((): EChartsOption => {
     animation: false,
     backgroundColor: 'transparent',
     tooltip: {
+      appendTo: 'body',
+      extraCssText: 'z-index: 999999;',
       trigger: 'item',
       backgroundColor: isDark.value ? '#2c3b45' : '#fff',
       borderColor: isDark.value ? '#445969' : '#e0e0e0',
